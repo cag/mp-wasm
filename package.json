@@ -1,0 +1,19 @@
+{
+  "name": "mp-wasm",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cag/mp-wasm.git"
+  },
+  "author": "Alan Lu",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/cag/mp-wasm/issues"
+  },
+  "homepage": "https://github.com/cag/mp-wasm#readme"
+}

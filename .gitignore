@@ -59,3 +59,15 @@ typings/
 
 # next.js build output
 .next
+
+####################
+# project specific #
+####################
+
+# downloaded libraries
+gmp-*/
+mpfr-*/
+mpc-*/
+
+# WASM build output
+mp-wasm-mods.*

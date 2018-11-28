@@ -16,10 +16,10 @@ EXPORTED_MPFR_FUNCTIONS := $(shell grep -o '^__MPFR_DECLSPEC.* [\(\)]' mpfr-4.0.
 EXPORTED_MPC_FUNCTIONS := $(shell grep -o '^__MPC_DECLSPEC.* [\(\)]' mpc-1.1.0/src/mpc.h | grep -Eo 'mpc_\w+ +[\(\)]' | cut -d ' ' -f1 | ${POST_PROCESS_LIST})
 EXPORTED_FUNCTIONS := [${EXPORTED_GMP_FUNCTIONS},${EXPORTED_MPFR_FUNCTIONS},${EXPORTED_MPC_FUNCTIONS}]
 
-all: mp-wasm-mods.js
+all: libs-build.js
 
-mp-wasm-mods.js: ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB}
-	emcc ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} -o mp-wasm-mods.js -s 'EXPORTED_FUNCTIONS=${EXPORTED_FUNCTIONS}'
+libs-build.js: ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB}
+	emcc ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} -o libs-build.js -s 'EXPORTED_FUNCTIONS=${EXPORTED_FUNCTIONS}'
 
 
 ${GMP_LIB}: | ${GMP_DIR}

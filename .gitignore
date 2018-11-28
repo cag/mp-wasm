@@ -70,4 +70,4 @@ mpfr-*/
 mpc-*/
 
 # WASM build output
-mp-wasm-mods.*
+libs-build.*

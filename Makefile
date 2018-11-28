@@ -10,10 +10,16 @@ MPC_VERSION := 1.1.0
 MPC_DIR := mpc-${MPC_VERSION}
 MPC_LIB := ${MPC_DIR}/src/.libs/libmpc.so
 
+POST_PROCESS_LIST := sed -e 's/\(.*\)/"_\1"/' | paste -d, -s -
+EXPORTED_GMP_FUNCTIONS := $(shell grep -Eo '__gmp[zq]_\w+' gmp-6.1.2/gmp.h | ${POST_PROCESS_LIST})
+EXPORTED_MPFR_FUNCTIONS := $(shell grep -o '^__MPFR_DECLSPEC.* [\(\)]' mpfr-4.0.1/src/mpfr.h | grep -Eo 'mpfr_\w+ +[\(\)]' | cut -d ' ' -f1 | grep -vwE 'mpfr_([gs]et_(decimal64|float128|[su]j\w*)|(inp|out)_str|[vasfn]*printf|fpif_(ex|im)port)' | ${POST_PROCESS_LIST})
+EXPORTED_MPC_FUNCTIONS := $(shell grep -o '^__MPC_DECLSPEC.* [\(\)]' mpc-1.1.0/src/mpc.h | grep -Eo 'mpc_\w+ +[\(\)]' | cut -d ' ' -f1 | ${POST_PROCESS_LIST})
+EXPORTED_FUNCTIONS := [${EXPORTED_GMP_FUNCTIONS},${EXPORTED_MPFR_FUNCTIONS},${EXPORTED_MPC_FUNCTIONS}]
+
 all: mp-wasm-mods.js
 
 mp-wasm-mods.js: ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB}
-	emcc ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} -o mp-wasm-mods.js -s 'EXTRA_EXPORTED_RUNTIME_METHODS=["cwrap"]' -s 'EXPORTED_FUNCTIONS=["___gmpz_init","_mpfr_init2","_mpc_init3"]'
+	emcc ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} -o mp-wasm-mods.js -s 'EXPORTED_FUNCTIONS=${EXPORTED_FUNCTIONS}'
 
 
 ${GMP_LIB}: | ${GMP_DIR}

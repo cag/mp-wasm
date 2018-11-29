@@ -1,3 +1,5 @@
+const { camelize } = require('humps')
+
 module.exports = new Promise(function(resolve, reject) {
   try {
     require('./libs-build')().then(function(Module) {
@@ -9,9 +11,8 @@ const {
   _sizeof_mp_limb_t, _sizeof_mpfr_struct, _get_MPFR_PREC_MIN, _get_MPFR_PREC_MAX,
   _mpfr_init, _mpfr_init2, _mpfr_clear,
   _mpfr_set_prec, _mpfr_get_prec,
-  _mpfr_set_d, _mpfr_set_str,
+  _mpfr_set, _mpfr_set_d, _mpfr_set_str,
   _conv_mpfr_to_str, _mpfr_free_str,
-  _mpfr_add, _mpfr_add_d,
 } = Module
 
 const mpLimbSize = _sizeof_mp_limb_t()
@@ -63,7 +64,13 @@ class MPFloat {
     const { base, roundMode } = opts || {}
     if(typeof newValue === 'number') {
       _mpfr_set_d(this.mpfrPtr, newValue, roundMode || mpf.roundTiesToEven)
-    } else if(typeof newValue === 'string') {
+    } else if(typeof newValue === 'object' && newValue instanceof MPFloat) {
+      _mpfr_set(this.mpfrPtr, newValue.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    } else if(
+      typeof newValue === 'string' ||
+      typeof newValue === 'bigint' ||
+      typeof newValue === 'object' && !(newValue instanceof MPFloat)
+    ) {
       const valAsCStr = _malloc(newValue.length * 4 + 1)
       stringToUTF8(newValue, valAsCStr, newValue.length * 4 + 1)
       _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, roundMode || mpf.roundTiesToEven)
@@ -105,7 +112,7 @@ class MPFloat {
 }
 
 function mpf(...args) { return new MPFloat(...args) }
-mpf.prototype = mpf.prototype
+mpf.prototype = MPFloat.prototype
 
 mpf.structSize = _sizeof_mpfr_struct()
 mpf.precMin = _get_MPFR_PREC_MIN()
@@ -119,30 +126,83 @@ mpf.roundAwayZero = 4
 mpf.roundFaithful = 5
 mpf.roundTiesToAwayZero = -1
 
+;[
+  'sqr', 'sqrt', 'rec_sqrt', 'cbrt', 'neg', 'abs',
+  'log2', 'log10', 'log1p',
+  'exp', 'exp2', 'exp10', 'expm1',
+  'cos', 'sin', 'tan', 'sec', 'csc', 'cot',
+  'acos', 'asin', 'atan',
+  'cosh', 'sinh', 'tanh', 'sech', 'csch', 'coth',
+  'acosh', 'asinh', 'atanh',
+  'eint', 'li2', 'gamma', 'lngamma', 'digamma',
+  'zeta', 'erf', 'j0', 'j1', 'y0', 'y1',
+  'rint', 'rint_ceil', 'rint_floor', 'rint_round', 'rint_roundeven', 'rint_trunc',
+  'frac',
+].forEach((op) => {
+  const name = camelize(op)
+  mpf[name] = {[name](a, opts) {
+    const { roundMode } = opts || {}
+    const ret = mpf(a, opts)
+    Module[`_mpfr_${op}`](ret.mpfrPtr, ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    return ret
+  }}[name]
+})
 
-mpf.add = function(a, b, opts) {
-  const { roundMode } = opts || {}
-  const ret = mpf(null, opts)
-  if(typeof a === 'object' && a instanceof MPFloat) {
-    if(typeof b === 'object' && b instanceof MPFloat) {
-      _mpfr_add(ret.mpfrPtr, a.mpfrPtr, b.mpfrPtr, roundMode || mpf.roundTiesToEven)
-    } else if(typeof b === 'number') {
-      _mpfr_add_d(ret.mpfrPtr, a.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
-    } else {
-      throw new Error(`don't know how to add ${a} and ${b}`)
+;['add', 'sub', 'mul', 'div'].forEach((op) => {
+  const name = camelize(op)
+  mpf[name] = {[name](a, b, opts) {
+    const { roundMode } = opts || {}
+    const ret = mpf(null, opts)
+    let shouldDestroyB = false
+
+    if(
+      typeof a === 'string' ||
+      typeof a === 'bigint' ||
+      typeof a === 'object' && !(a instanceof MPFloat)
+    ) {
+      ret.set(a.toString(), opts)
+      a = ret
     }
-  } else if(typeof a === 'number') {
-    if(typeof b === 'object' && b instanceof MPFloat) {
-      _mpfr_add_d(ret.mpfrPtr, b.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
-    } else if(typeof b === 'number') {
-      _mpfr_set_d(ret.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
-      _mpfr_add_d(ret.mpfrPtr, ret.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
-    } else {
-      throw new Error(`don't know how to add ${a} and ${b}`)
+
+    if(
+      typeof b === 'string' ||
+      typeof b === 'bigint' ||
+      typeof b === 'object' && !(b instanceof MPFloat)
+    ) {
+      b = mpf(b.toString(), opts)
+      shouldDestroyB = true
     }
-  }
-  return ret
-}
+
+    if(typeof a === 'object' && a instanceof MPFloat) {
+      if(typeof b === 'object' && b instanceof MPFloat) {
+        Module[`_mpfr_${op}`](ret.mpfrPtr, a.mpfrPtr, b.mpfrPtr, roundMode || mpf.roundTiesToEven)
+      } else if(typeof b === 'number') {
+        Module[`_mpfr_${op}_d`](ret.mpfrPtr, a.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
+      } else {
+        throw new Error(`don't know how to ${op} ${a} and ${b}`)
+      }
+    } else if(typeof a === 'number') {
+      if(typeof b === 'object' && b instanceof MPFloat) {
+        if(Module[`_mpfr_d_${op}`])
+          Module[`_mpfr_d_${op}`](ret.mpfrPtr, a, b.mpfrPtr, roundMode || mpf.roundTiesToEven)
+        else
+          Module[`_mpfr_${op}_d`](ret.mpfrPtr, b.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
+      } else if(typeof b === 'number') {
+        _mpfr_set_d(ret.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
+        Module[`_mpfr_${op}_d`](ret.mpfrPtr, ret.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
+      } else {
+        throw new Error(`don't know how to ${op} ${a} and ${b}`)
+      }
+    }
+
+    if(shouldDestroyB) {
+      b.destroy()
+      b = null
+    }
+
+    return ret
+  }}[name]
+})
 
 return resolve({ mpf })
 

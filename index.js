@@ -8,14 +8,40 @@ const {
   Pointer_stringify, stringToUTF8,
   getValue,
   _malloc, _free,
-  _sizeof_mp_limb_t, _sizeof_mpfr_struct, _get_MPFR_PREC_MIN, _get_MPFR_PREC_MAX,
+  _sizeof_mp_limb_t, _sizeof_mpfr_struct, _sizeof_unsigned_long,
+  _get_MPFR_PREC_MIN, _get_MPFR_PREC_MAX,
   _mpfr_init, _mpfr_init2, _mpfr_clear,
   _mpfr_set_prec, _mpfr_get_prec,
+  _mpfr_set_default_prec, _mpfr_get_default_prec,
   _mpfr_set, _mpfr_set_d, _mpfr_set_str,
-  _conv_mpfr_to_str, _mpfr_free_str,
+  _conv_mpfr_to_str, _mpfr_free_str, _mpfr_get_d,
+  _mpfr_nan_p, _mpfr_number_p
 } = Module
 
+const unsignedLongSize = _sizeof_unsigned_long()
+const unsignedLongLimit = 2 ** (unsignedLongSize * 4)
+const signedLongLimits = [-(2 ** (unsignedLongSize * 4 - 1)), 2 ** (unsignedLongSize * 4 - 1)]
 const mpLimbSize = _sizeof_mp_limb_t()
+
+function checkValidPrec(prec) {
+  if(
+    prec == null ||
+    typeof prec !== 'number' ||
+    !Number.isInteger(prec) ||
+    prec < mpf.precMin ||
+    prec > mpf.precMax
+  ) {
+    throw new Error(`invalid precision value ${prec}`)
+  }
+}
+
+function isUnsignedLong(n) {
+  return Number.isInteger(n) && n >= 0 && n < unsignedLongLimit
+}
+
+function isSignedLong(n) {
+  return Number.isInteger(n) && n >= signedLongLimits[0] && n < signedLongLimits[1]
+}
 
 class MPFloat {
 
@@ -24,12 +50,12 @@ class MPFloat {
     this.mpfrPtr = _malloc(mpf.structSize)
 
     try {
-      if(typeof prec === 'number' && prec === prec | 0 && prec >= mpf.precMin && prec <= mpf.precMax) {
-        _mpfr_init2(this.mpfrPtr, prec)
-      } else if (prec == null) {
+      if (prec == null) {
         _mpfr_init(this.mpfrPtr)
-      } else
-        throw new Error(`invalid precision ${prec}`)
+      } else {
+        checkValidPrec(prec)
+        _mpfr_init2(this.mpfrPtr, prec)
+      }
 
       try {
         if(initialValue != null) {
@@ -52,8 +78,9 @@ class MPFloat {
     this.mpfrPtr = 0
   }
 
-  setPrec() {
-    return _mpfr_set_prec(this.mpfrPtr)
+  setPrec(prec) {
+    checkValidPrec(prec)
+    return _mpfr_set_prec(this.mpfrPtr, prec)
   }
 
   getPrec() {
@@ -76,7 +103,7 @@ class MPFloat {
       _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, roundMode || mpf.roundTiesToEven)
       _free(valAsCStr)
     } else {
-      throw new Error(`unexpected set value ${newValue}`)
+      throw new Error(`can't set value to ${newValue}`)
     }
   }
 
@@ -87,6 +114,19 @@ class MPFloat {
     const ret = Pointer_stringify(ptr)
     _mpfr_free_str(ptr)
     return ret
+  }
+
+  toNumber(opts) {
+    const { roundMode } = opts || {}
+    return _mpfr_get_d(this.mpfrPtr, roundMode || mpf.roundTiesToEven)
+  }
+
+  isNaN() {
+    return Boolean(_mpfr_nan_p(this.mpfrPtr))
+  }
+
+  isFinite() {
+    return Boolean(_mpfr_number_p(this.mpfrPtr))
   }
 
   dumpInternals() {
@@ -126,16 +166,25 @@ mpf.roundAwayZero = 4
 mpf.roundFaithful = 5
 mpf.roundTiesToAwayZero = -1
 
+mpf.getDefaultPrec = function getDefaultPrec() {
+  return _mpfr_get_default_prec()
+}
+
+mpf.setDefaultPrec = function setDefaultPrec(prec) {
+  checkValidPrec(prec)
+  _mpfr_set_default_prec(prec)
+}
+
 ;[
   'sqr', 'sqrt', 'rec_sqrt', 'cbrt', 'neg', 'abs',
-  'log2', 'log10', 'log1p',
+  'log', 'log2', 'log10', 'log1p',
   'exp', 'exp2', 'exp10', 'expm1',
   'cos', 'sin', 'tan', 'sec', 'csc', 'cot',
   'acos', 'asin', 'atan',
   'cosh', 'sinh', 'tanh', 'sech', 'csch', 'coth',
-  'acosh', 'asinh', 'atanh',
+  'acosh', 'asinh', 'atanh', 'fac',
   'eint', 'li2', 'gamma', 'lngamma', 'digamma',
-  'zeta', 'erf', 'j0', 'j1', 'y0', 'y1',
+  'zeta', 'erf', 'erfc', 'j0', 'j1', 'y0', 'y1',
   'rint', 'rint_ceil', 'rint_floor', 'rint_round', 'rint_roundeven', 'rint_trunc',
   'frac',
 ].forEach((op) => {
@@ -143,7 +192,18 @@ mpf.roundTiesToAwayZero = -1
   mpf[name] = {[name](a, opts) {
     const { roundMode } = opts || {}
     const ret = mpf(a, opts)
-    Module[`_mpfr_${op}`](ret.mpfrPtr, ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+
+    let fn, arg
+
+    if((fn = Module[`_mpfr_${op}_ui`]) && isUnsignedLong(a)) {
+      arg = a
+    } else if(fn = Module[`_mpfr_${op}`]) {
+      arg = ret.mpfrPtr
+    } else {
+      throw new Error(`can't perform ${op} on ${a}`)
+    }
+
+    fn(ret.mpfrPtr, arg, roundMode || mpf.roundTiesToEven)
     return ret
   }}[name]
 })
@@ -155,13 +215,87 @@ mpf.roundTiesToAwayZero = -1
     const ret = mpf(null, opts)
     let shouldDestroyB = false
 
+    try {
+      if(
+        typeof a === 'string' ||
+        typeof a === 'bigint' ||
+        typeof a === 'object' && !(a instanceof MPFloat)
+      ) {
+        ret.set(a, opts)
+        a = ret
+      }
+
+      if(
+        typeof b === 'string' ||
+        typeof b === 'bigint' ||
+        typeof b === 'object' && !(b instanceof MPFloat)
+      ) {
+        b = mpf(b, opts)
+        shouldDestroyB = true
+      }
+
+      let fn, arg1, arg2
+
+      if(typeof a === 'object' && a instanceof MPFloat) {
+        if(typeof b === 'object' && b instanceof MPFloat) {
+          fn = Module[`_mpfr_${op}`]
+          arg1 = a.mpfrPtr
+          arg2 = b.mpfrPtr
+        } else if(typeof b === 'number') {
+          fn = Module[`_mpfr_${op}_d`]
+          arg1 = a.mpfrPtr
+          arg2 = b
+        }
+      } else if(typeof a === 'number') {
+        if(typeof b === 'object' && b instanceof MPFloat) {
+          fn = Module[`_mpfr_d_${op}`]
+          if(fn) {
+            arg1 = a
+            arg2 = b.mpfrPtr
+          } else {
+            // assume op is commutative if _mpfr_d_${op} does not exist
+            fn = Module[`_mpfr_${op}_d`]
+            arg1 = b.mpfrPtr
+            arg2 = a
+          }
+        } else if(typeof b === 'number') {
+          fn = Module[`_mpfr_${op}_d`]
+          _mpfr_set_d(ret.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
+          arg1 = ret.mpfrPtr
+          arg2 = b
+        }
+      }
+
+      if(fn == null)
+        throw new Error(`can't perform ${op} on ${a} and ${b}`)
+
+      fn(ret.mpfrPtr, arg1, arg2, roundMode || mpf.roundTiesToEven)
+
+    } finally {
+      if(shouldDestroyB) {
+        b.destroy()
+        b = null
+      }
+    }
+
+    return ret
+  }}[name]
+})
+
+const { _mpfr_cmp, _mpfr_cmp_d, _mpfr_cmpabs } = Module
+
+mpf.cmp = function cmp(a, b) {
+  let shouldDestroyA = false
+  let shouldDestroyB = false
+
+  try {
     if(
       typeof a === 'string' ||
       typeof a === 'bigint' ||
       typeof a === 'object' && !(a instanceof MPFloat)
     ) {
-      ret.set(a.toString(), opts)
-      a = ret
+      a = mpf(a.toString())
+      shouldDestroyA = true
     }
 
     if(
@@ -169,40 +303,101 @@ mpf.roundTiesToAwayZero = -1
       typeof b === 'bigint' ||
       typeof b === 'object' && !(b instanceof MPFloat)
     ) {
-      b = mpf(b.toString(), opts)
+      b = mpf(b.toString())
       shouldDestroyB = true
     }
 
+    let ret
+
     if(typeof a === 'object' && a instanceof MPFloat) {
       if(typeof b === 'object' && b instanceof MPFloat) {
-        Module[`_mpfr_${op}`](ret.mpfrPtr, a.mpfrPtr, b.mpfrPtr, roundMode || mpf.roundTiesToEven)
+        ret = _mpfr_cmp(a.mpfrPtr, b.mpfrPtr)
       } else if(typeof b === 'number') {
-        Module[`_mpfr_${op}_d`](ret.mpfrPtr, a.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
-      } else {
-        throw new Error(`don't know how to ${op} ${a} and ${b}`)
+        ret = _mpfr_cmp_d(a.mpfrPtr, b)
       }
     } else if(typeof a === 'number') {
       if(typeof b === 'object' && b instanceof MPFloat) {
-        if(Module[`_mpfr_d_${op}`])
-          Module[`_mpfr_d_${op}`](ret.mpfrPtr, a, b.mpfrPtr, roundMode || mpf.roundTiesToEven)
-        else
-          Module[`_mpfr_${op}_d`](ret.mpfrPtr, b.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
+        ret = -_mpfr_cmp_d(b.mpfrPtr, a)
       } else if(typeof b === 'number') {
-        _mpfr_set_d(ret.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
-        Module[`_mpfr_${op}_d`](ret.mpfrPtr, ret.mpfrPtr, b, roundMode || mpf.roundTiesToEven)
-      } else {
-        throw new Error(`don't know how to ${op} ${a} and ${b}`)
+        a = mpf(a)
+        shouldDestroyA = true
+        ret = _mpfr_cmp_d(a.mpfrPtr, b)
       }
+    }
+
+    if(ret == null)
+      throw new Error(`don't know how to cmp ${a} and ${b}`)
+  } finally {
+    if(shouldDestroyA) {
+      a.destroy()
+      a = null
     }
 
     if(shouldDestroyB) {
       b.destroy()
       b = null
     }
+  }
 
-    return ret
+  return ret
+}
+
+mpf.cmpabs = function cmpabs(a, b) {
+  let shouldDestroyA = false
+  let shouldDestroyB = false
+
+  if(!(typeof a === 'object') || !(a instanceof MPFloat)) {
+    a = mpf(a)
+    shouldDestroyA = true
+  }
+
+  if(!(typeof a === 'object') || !(a instanceof MPFloat)) {
+    a = mpf(b)
+    shouldDestroyB = true
+  }
+
+  const ret = _mpfr_cmpabs(a.mpfrPtr, b.mpfrPtr)
+
+  if(shouldDestroyA) {
+    a.destroy()
+    a = null
+  }
+
+  if(shouldDestroyB) {
+    b.destroy()
+    b = null
+  }
+
+  return ret
+}
+
+;[
+  ['greater', 'gt'],
+  ['greaterequal', 'gte'],
+  ['less', 'lt'],
+  ['lessequal', 'lte'],
+  ['equal', 'eq'],
+  ['lessgreater', 'lgt'],
+].forEach(([op, name]) => {
+  mpf.prototype[name] = {[name](other) {
+    let shouldDestroyOther = false
+
+    if(!(typeof other === 'object') || !(other instanceof MPFloat)) {
+      other = mpf(other)
+      shouldDestroyOther = true
+    }
+
+    const res = Boolean(Module[`_mpfr_${op}_p`](this.mpfrPtr, other.mpfrPtr))
+
+    if(shouldDestroyOther) {
+      other.destroy()
+      other = null
+    }
+
+    return res
   }}[name]
 })
+
 
 return resolve({ mpf })
 

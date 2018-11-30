@@ -1,12 +1,11 @@
 const { camelize } = require('humps')
 
-module.exports = new Promise(function(resolve, reject) {
-  try {
-    require('./libs-build')().then(function(Module) {
+const { wasmInstance, utils } = require('./module')
+const wasmExports = wasmInstance.exports
+
+const { ptrToString, stringToPtr } = utils
 
 const {
-  Pointer_stringify, stringToUTF8,
-  getValue,
   _malloc, _free,
   _sizeof_mp_limb_t, _sizeof_mpfr_struct, _sizeof_unsigned_long,
   _get_MPFR_PREC_MIN, _get_MPFR_PREC_MAX,
@@ -17,7 +16,7 @@ const {
   _mpfr_set, _mpfr_set_d, _mpfr_set_str,
   _conv_mpfr_to_str, _mpfr_free_str, _mpfr_get_d,
   _mpfr_nan_p, _mpfr_number_p, _mpfr_integer_p,
-} = Module
+} = wasmExports
 
 const unsignedLongSize = _sizeof_unsigned_long()
 const unsignedLongLimit = 2 ** (unsignedLongSize * 4)
@@ -122,8 +121,7 @@ class MPFloat {
       typeof newValue === 'bigint' ||
       typeof newValue === 'object'
     ) {
-      const valAsCStr = _malloc(newValue.length * 4 + 1)
-      stringToUTF8(newValue, valAsCStr, newValue.length * 4 + 1)
+      const valAsCStr = stringToPtr(newValue)
       _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, normalizeRoundingMode(roundingMode))
       _free(valAsCStr)
     } else {
@@ -135,7 +133,7 @@ class MPFloat {
     const ptr = _conv_mpfr_to_str(this.mpfrPtr)
     if(ptr === 0)
       throw new Error(`could not convert mpfr at ${this.mpfrPtr} to string`)
-    const ret = Pointer_stringify(ptr)
+    const ret = ptrToString(ptr)
     _mpfr_free_str(ptr)
     return ret
   }
@@ -157,25 +155,8 @@ class MPFloat {
     return Boolean(_mpfr_integer_p(this.mpfrPtr))
   }
 
-  dumpInternals() {
-    const precision = getValue(this.mpfrPtr, 'i32')
-    const dptr = getValue(this.mpfrPtr + 12, '*')
-    const str = `precision: ${
-      precision
-    } -- sign: ${
-      getValue(this.mpfrPtr + 4, 'i32')
-    } -- exp: ${
-      getValue(this.mpfrPtr + 8, 'i32')
-    } -- limbs: ${
-      [...Array(Math.ceil(precision / mpLimbSize / 8)).keys()].map(i =>
-        '0x' + [getValue(dptr + 8 * i, '*'), getValue(dptr + 8 * i + 4, '*')]
-          .map(v => ('00000000' + ((v + 4294967296) % 4294967296).toString(16)).slice(-8))
-          .reverse()
-          .join('')
-      ).join(' ')
-    }`
-
-    return str
+  [Symbol.for('nodejs.util.inspect.custom')]() {
+    return `mpf('${this.toString()}')`
   }
 }
 
@@ -227,7 +208,7 @@ mpf.isMPFloat = function isMPFloat(value) {
 
 ;['log2', 'pi', 'euler', 'catalan'].forEach(constant => {
   const name = `get${constant.charAt(0).toUpperCase()}${constant.slice(1)}`
-  const fn = Module[`_mpfr_const_${constant}`]
+  const fn = wasmExports[`_mpfr_const_${constant}`]
   mpf[name] = {[name](opts) {
     const { roundingMode } = opts || {}
     const ret = mpf(null, opts)
@@ -260,9 +241,9 @@ curriedOps = []
 
     let fn, arg
 
-    if((fn = Module[`_mpfr_${op}_ui`]) && isUnsignedLong(a)) {
+    if((fn = wasmExports[`_mpfr_${op}_ui`]) && isUnsignedLong(a)) {
       arg = a
-    } else if(fn = Module[`_mpfr_${op}`]) {
+    } else if(fn = wasmExports[`_mpfr_${op}`]) {
       arg = ret.mpfrPtr
     } else {
       throw new Error(`can't perform ${op} on ${a}`)
@@ -276,7 +257,7 @@ curriedOps = []
 
 ;['ceil', 'floor', 'round', 'roundeven', 'trunc'].forEach((op) => {
   const name = camelize(op)
-  const fn = Module[`_mpfr_${op}`]
+  const fn = wasmExports[`_mpfr_${op}`]
   mpf[name] = {[name](a, opts) {
     if(a == null) throw new Error('missing argument')
 
@@ -311,39 +292,39 @@ curriedOps = []
 
       // here is a long chain of responsibility...
       // castless cases
-      if((fn = Module[`_mpfr_d_${op}`]) && typeof a === 'number' && mpf.isMPFloat(b)) {
+      if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number' && mpf.isMPFloat(b)) {
         arg1 = a
         arg2 = b.mpfrPtr
-      } else if((fn = Module[`_mpfr_${op}_d`]) && mpf.isMPFloat(a) && typeof b === 'number') {
+      } else if((fn = wasmExports[`_mpfr_${op}_d`]) && mpf.isMPFloat(a) && typeof b === 'number') {
         arg1 = a.mpfrPtr
         arg2 = b
       } else if(fn && typeof a === 'number' && mpf.isMPFloat(b)) {
         // assume op is commutative if _mpfr_d_${op} does not exist
         arg1 = b.mpfrPtr
         arg2 = a
-      } else if((fn = Module[`_mpfr_ui_${op}_ui`]) && isUnsignedLong(a) && isUnsignedLong(b)) {
+      } else if((fn = wasmExports[`_mpfr_ui_${op}_ui`]) && isUnsignedLong(a) && isUnsignedLong(b)) {
         arg1 = a
         arg2 = b
-      } else if((fn = Module[`_mpfr_${op}_ui`]) && mpf.isMPFloat(a) && isUnsignedLong(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && mpf.isMPFloat(a) && isUnsignedLong(b)) {
         arg1 = a.mpfrPtr
         arg2 = b
-      } else if((fn = Module[`_mpfr_${op}_si`]) && mpf.isMPFloat(a) && isSignedLong(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}_si`]) && mpf.isMPFloat(a) && isSignedLong(b)) {
         arg1 = a.mpfrPtr
         arg2 = b
-      } else if((fn = Module[`_mpfr_ui_${op}`]) && isUnsignedLong(a) && mpf.isMPFloat(b)) {
+      } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isUnsignedLong(a) && mpf.isMPFloat(b)) {
         arg1 = a
         arg2 = b.mpfrPtr
-      } else if((fn = Module[`_mpfr_${op}`]) && mpf.isMPFloat(a) && mpf.isMPFloat(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(a) && mpf.isMPFloat(b)) {
         arg1 = a.mpfrPtr
         arg2 = b.mpfrPtr
       }
       // casted cases
-      else if((fn = Module[`_mpfr_d_${op}`]) && typeof a === 'number') {
+      else if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number') {
         ret.set(b, opts)
         b = ret
         arg1 = a
         arg2 = b.mpfrPtr
-      } else if((fn = Module[`_mpfr_${op}_d`]) && typeof b === 'number') {
+      } else if((fn = wasmExports[`_mpfr_${op}_d`]) && typeof b === 'number') {
         ret.set(a, opts)
         a = ret
         arg1 = a.mpfrPtr
@@ -354,22 +335,22 @@ curriedOps = []
         b = ret
         arg1 = b.mpfrPtr
         arg2 = a
-      } else if((fn = Module[`_mpfr_${op}_ui`]) && isUnsignedLong(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && isUnsignedLong(b)) {
         ret.set(a, opts)
         a = ret
         arg1 = a.mpfrPtr
         arg2 = b
-      } else if((fn = Module[`_mpfr_${op}_si`]) && isSignedLong(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}_si`]) && isSignedLong(b)) {
         ret.set(a, opts)
         a = ret
         arg1 = a.mpfrPtr
         arg2 = b
-      } else if((fn = Module[`_mpfr_ui_${op}`]) && isUnsignedLong(a)) {
+      } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isUnsignedLong(a)) {
         ret.set(b, opts)
         b = ret
         arg1 = a
         arg2 = b.mpfrPtr
-      } else if((fn = Module[`_mpfr_${op}`]) && mpf.isMPFloat(b)) {
+      } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(b)) {
         ret.set(a, opts)
         a = ret
         arg1 = a.mpfrPtr
@@ -408,7 +389,7 @@ curriedOps = []
 
 ;['jn', 'yn'].forEach((op) => {
   const name = camelize(op)
-  const fn = Module[`_mpfr_${op}`]
+  const fn = wasmExports[`_mpfr_${op}`]
   mpf[name] = {[name](n, a, opts) {
     if(n == null) throw new Error('missing n')
     if(a == null) throw new Error('missing argument')
@@ -426,7 +407,7 @@ curriedOps = []
   curriedOps.push(name)
 })
 
-const { _mpfr_cmp, _mpfr_cmp_d, _mpfr_cmpabs } = Module
+const { _mpfr_cmp, _mpfr_cmp_d, _mpfr_cmpabs } = wasmExports
 
 mpf.cmp = function cmp(a, b) {
   let shouldDestroyA = false
@@ -533,7 +514,7 @@ curriedOps.push('cmpabs')
       shouldDestroyOther = true
     }
 
-    const res = Boolean(Module[`_mpfr_${op}_p`](this.mpfrPtr, other.mpfrPtr))
+    const res = Boolean(wasmExports[`_mpfr_${op}_p`](this.mpfrPtr, other.mpfrPtr))
 
     if(shouldDestroyOther) {
       other.destroy()
@@ -550,10 +531,4 @@ curriedOps.forEach((name) => {
   }}[name]
 })
 
-return resolve({ mpf })
-
-    })
-  } catch(e) {
-    return reject(e)
-  }
-})
+module.exports = { mpf }

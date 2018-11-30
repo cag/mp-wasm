@@ -70,4 +70,4 @@ mpfr-*/
 mpc-*/
 
 # WASM build output
-libs-build.*
+mp.js

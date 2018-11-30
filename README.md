@@ -84,23 +84,29 @@ Many of the functions also carry similar options which may be expressed as an op
 mpf(1.567e10, { prec: 3 })
 ```
 
-create as instance of `mpf` with only three bits in its significand. Likewise, a rounding mode may be specified:
+creates an instance of `mpf` with only three bits of precision in its significand. Likewise, a rounding mode may be specified:
 
 ```js
-mpf(1.5, { 'roundTowardZero' })
+mpf(1.5, { roundingMode: 'roundTowardZero' })
+```
+
+Or both, if you'd like:
+
+```js
+mpf(3.5, { prec: 128, roundingMode: 'roundTowardPositive' })
 ```
 
 #### Available Rounding Modes
 
 These modes correspond with MPFR's:
 
-| 'roundTiesToEven'     |  0  |
-| 'roundTowardZero'     |  1  |
-| 'roundTowardPositive' |  2  |
-| 'roundTowardNegative' |  3  |
-| 'roundAwayZero'       |  4  |
-| 'roundFaithful'       |  5  |
-| 'roundTiesToAwayZero' | -1  |
+    | 'roundTiesToEven'     |  0  |
+    | 'roundTowardZero'     |  1  |
+    | 'roundTowardPositive' |  2  |
+    | 'roundTowardNegative' |  3  |
+    | 'roundAwayZero'       |  4  |
+    | 'roundFaithful'       |  5  |
+    | 'roundTiesToAwayZero' | -1  |
 
 Either the string or the number value may be specified as the rounding mode.
 

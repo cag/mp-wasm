@@ -15,7 +15,7 @@ const {
   _mpfr_set_default_prec, _mpfr_get_default_prec,
   _mpfr_set, _mpfr_set_d, _mpfr_set_str,
   _conv_mpfr_to_str, _mpfr_free_str, _mpfr_get_d,
-  _mpfr_nan_p, _mpfr_number_p
+  _mpfr_nan_p, _mpfr_number_p, _mpfr_integer_p,
 } = Module
 
 const unsignedLongSize = _sizeof_unsigned_long()
@@ -129,6 +129,10 @@ class MPFloat {
     return Boolean(_mpfr_number_p(this.mpfrPtr))
   }
 
+  isInteger() {
+    return Boolean(_mpfr_integer_p(this.mpfrPtr))
+  }
+
   dumpInternals() {
     const precision = getValue(this.mpfrPtr, 'i32')
     const dptr = getValue(this.mpfrPtr + 12, '*')
@@ -181,10 +185,11 @@ mpf.isMPFloat = function isMPFloat(value) {
 
 ;['log2', 'pi', 'euler', 'catalan'].forEach(constant => {
   const name = `get${constant.charAt(0).toUpperCase()}${constant.slice(1)}`
+  const fn = Module[`_mpfr_const_${constant}`]
   mpf[name] = {[name](opts) {
     const { roundMode } = opts || {}
     const ret = mpf(null, opts)
-    Module[`_mpfr_const_${constant}`](ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    fn(ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
     return ret
   }}[name]
 })
@@ -204,6 +209,8 @@ mpf.isMPFloat = function isMPFloat(value) {
 ].forEach((op) => {
   const name = camelize(op)
   mpf[name] = {[name](a, opts) {
+    if(a == null) throw new Error('missing argument')
+
     const { roundMode } = opts || {}
     const ret = mpf(a, opts)
 
@@ -222,14 +229,32 @@ mpf.isMPFloat = function isMPFloat(value) {
   }}[name]
 })
 
+;['ceil', 'floor', 'round', 'roundeven', 'trunc'].forEach((op) => {
+  const name = camelize(op)
+  const fn = Module[`_mpfr_${op}`]
+  mpf[name] = {[name](a, opts) {
+    if(a == null) throw new Error('missing argument')
+
+    const { roundMode } = opts || {}
+    const ret = mpf(a, opts)
+
+    fn(ret.mpfrPtr, ret.mpfrPtr)
+    return ret
+  }}[name]
+})
+
 ;[
   'add', 'sub', 'mul', 'div',
   'rootn', 'pow', 'dim',
   'atan2', 'gamma_inc',
   'beta', 'agm', 'hypot',
+  'fmod', 'remainder',
 ].forEach((op) => {
   const name = camelize(op)
   mpf[name] = {[name](a, b, opts) {
+    if(a == null) throw new Error('missing first argument')
+    if(b == null) throw new Error('missing second argument')
+
     const { roundMode } = opts || {}
     const ret = mpf(null, opts)
     let shouldDestroyB = false
@@ -337,6 +362,8 @@ mpf.isMPFloat = function isMPFloat(value) {
   const name = camelize(op)
   const fn = Module[`_mpfr_${op}`]
   mpf[name] = {[name](n, a, opts) {
+    if(n == null) throw new Error('missing n')
+    if(a == null) throw new Error('missing argument')
     if(!isSignedLong(n)) {
       throw new Error(`can't perform ${op} with invalid n=${n} (a = ${a})`)
     }

@@ -179,6 +179,16 @@ mpf.isMPFloat = function isMPFloat(value) {
   return typeof value === 'object' && value instanceof MPFloat
 }
 
+;['log2', 'pi', 'euler', 'catalan'].forEach(constant => {
+  const name = `get${constant.charAt(0).toUpperCase()}${constant.slice(1)}`
+  mpf[name] = {[name](opts) {
+    const { roundMode } = opts || {}
+    const ret = mpf(null, opts)
+    Module[`_mpfr_const_${constant}`](ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    return ret
+  }}[name]
+})
+
 ;[
   'sqr', 'sqrt', 'rec_sqrt', 'cbrt', 'neg', 'abs',
   'log', 'log2', 'log10', 'log1p',
@@ -455,7 +465,6 @@ mpf.cmpabs = function cmpabs(a, b) {
     return res
   }}[name]
 })
-
 
 return resolve({ mpf })
 

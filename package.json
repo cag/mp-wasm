@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build:wasm": "make",
+    "build:web": "browserify browser.js -o mp-wasm.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -18,5 +20,8 @@
   "homepage": "https://github.com/cag/mp-wasm#readme",
   "dependencies": {
     "humps": "^2.0.1"
+  },
+  "devDependencies": {
+    "browserify": "^16.2.3"
   }
 }

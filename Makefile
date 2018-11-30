@@ -1,4 +1,4 @@
-OPTIMIZATION_FLAG := -O0
+OPTIMIZATION_FLAG := -O2
 
 GMP_VERSION := 6.1.2
 GMP_DIR := gmp-${GMP_VERSION}
@@ -20,7 +20,7 @@ EXPORTED_FUNCTIONS := [${EXPORTED_GMP_FUNCTIONS},${EXPORTED_MPFR_FUNCTIONS},${EX
 
 all: mp.wasm
 
-mp.wasm: ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} utils.c index.js
+mp.wasm: ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} utils.c index.js browser.js mem-utils.js mpf.js setup.js
 	emcc ${OPTIMIZATION_FLAG} ${GMP_LIB} ${MPFR_LIB} ${MPC_LIB} -I${CURDIR}/${GMP_DIR} -I${CURDIR}/${MPFR_DIR}/src -I${CURDIR}/${MPC_DIR}/src utils.c -o mp.js -s 'EXPORTED_FUNCTIONS=${EXPORTED_FUNCTIONS}'
 
 

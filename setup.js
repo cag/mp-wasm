@@ -1,9 +1,3 @@
-const fs = require('fs')
-const path = require('path')
-
-const wasmBuffer = fs.readFileSync(path.join(__dirname, 'mp.wasm'))
-const wasmModule = new WebAssembly.Module(wasmBuffer)
-
 const globalImports = {
   NaN: new WebAssembly.Global({ value: 'f64' }, NaN),
   Infinity: new WebAssembly.Global({ value: 'f64' }, Infinity),
@@ -24,16 +18,10 @@ const memory = new WebAssembly.Memory({
   maximum: numMemoryPages,
 })
 
-const memViews = {}
-memViews.int8 = new Int8Array(memory.buffer)
-memViews.uint8 = new Uint8Array(memory.buffer)
-memViews.uint8Clamped = new Uint8ClampedArray(memory.buffer)
-memViews.int16 = new Int16Array(memory.buffer)
-memViews.uint16 = new Uint16Array(memory.buffer)
-memViews.int32 = new Int32Array(memory.buffer)
-memViews.uint32 = new Uint32Array(memory.buffer)
-memViews.float32 = new Float32Array(memory.buffer)
-memViews.float64 = new Float64Array(memory.buffer)
+const memViews = {
+  uint8: new Uint8Array(memory.buffer),
+  uint32: new Uint32Array(memory.buffer),
+}
 
 const numStackPages = 80
 const totalStackMemory = numStackPages * wasmPageSize
@@ -62,9 +50,10 @@ const STACK_MAX = STACKTOP + totalStackMemory;
 
 const dynamicBase = alignMemory(STACK_MAX);
 
-memViews.int32[DYNAMICTOP_PTR >> 2] = dynamicBase;
+memViews.uint32[DYNAMICTOP_PTR >> 2] = dynamicBase;
 
 let tempRet0 = 0
+const errNoObj = {}
 
 const envImports = {
   setTempRet0(value) {
@@ -96,11 +85,16 @@ const envImports = {
   ___unlock() {},
 
   ___setErrNo(value) {
-    if(___errno_location != null)
-      memViews.int32[___errno_location() >> 2] = value;
+    const { getLoc } = errNoObj
+    if(getLoc != null)
+      memViews.uint32[getLoc() >> 2] = value;
     else
       console.warn("can't set errno", value)
     return value;
+  },
+
+  abort() {
+    throw new Error('abort')
   },
 
   _abort() {
@@ -124,8 +118,8 @@ const envImports = {
 
   table: new WebAssembly.Table({
     element: "anyfunc",
-    initial: 400,
-    maximum: 400,
+    initial: 70,
+    maximum: 70,
   }),
 }
 
@@ -151,27 +145,7 @@ syscallNames = {
   }}[name]
 })
 
-const utf8Encoder = new TextEncoder('utf-8')
-const utf8Decoder = new TextDecoder('utf-8')
-
-const wasmInstance = new WebAssembly.Instance(wasmModule, { global: globalImports, env: envImports })
-
-const { ___errno_location, _malloc } = wasmInstance.exports
-
 module.exports = {
-  wasmInstance,
-  utils: {
-    stringToPtr(str) {
-      const b = utf8Encoder.encode(str)
-      const ptr = _malloc(b.length + 1)
-      memViews.uint8.set(b, ptr)
-      memViews.uint8[ptr + b.length] = 0
-      return ptr
-    },
-    ptrToString(ptr) {
-      let length
-      for(length = 0; memViews.uint8[ptr + length] !== 0; ++length);
-      return utf8Decoder.decode(new DataView(memory.buffer, ptr, length))
-    },
-  },
+  importObj: { global: globalImports, env: envImports, errNoObj },
+  errNoObj,
 }

@@ -137,7 +137,7 @@ These functions gets a corresponding math constant and returns an shared instanc
 
 Unary operators:
 
-    sqr       sqrt      rec_sqrt   cbrt    neg     abs
+    sqr       sqrt      recSqrt    cbrt    neg     abs
     log       log2      log10      log1p
     exp       exp2      exp10      expm1
     cos       sin       tan        sec     csc     cot
@@ -153,7 +153,7 @@ Binary operators:
 
     add       sub       mul        div
     rootn     pow       dim
-    atan2   gammaInc    beta
+    atan2        gammaInc     beta
     jn        yn        agm       hypot
     fmod      remainder
     min       max

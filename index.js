@@ -236,6 +236,8 @@ mpf.isMPFloat = function isMPFloat(value) {
   }}[name]
 })
 
+curriedOps = []
+
 ;[
   'sqr', 'sqrt', 'rec_sqrt', 'cbrt', 'neg', 'abs',
   'log', 'log2', 'log10', 'log1p',
@@ -269,6 +271,7 @@ mpf.isMPFloat = function isMPFloat(value) {
     fn(ret.mpfrPtr, arg, normalizeRoundingMode(roundingMode))
     return ret
   }}[name]
+  if(name !== 'fac') curriedOps.push(name)
 })
 
 ;['ceil', 'floor', 'round', 'roundeven', 'trunc'].forEach((op) => {
@@ -283,6 +286,7 @@ mpf.isMPFloat = function isMPFloat(value) {
     fn(ret.mpfrPtr, ret.mpfrPtr)
     return ret
   }}[name]
+  curriedOps.push(name)
 })
 
 ;[
@@ -399,6 +403,7 @@ mpf.isMPFloat = function isMPFloat(value) {
 
     return ret
   }}[name]
+  curriedOps.push(name)
 })
 
 ;['jn', 'yn'].forEach((op) => {
@@ -418,6 +423,7 @@ mpf.isMPFloat = function isMPFloat(value) {
 
     return ret
   }}[name]
+  curriedOps.push(name)
 })
 
 const { _mpfr_cmp, _mpfr_cmp_d, _mpfr_cmpabs } = Module
@@ -479,6 +485,7 @@ mpf.cmp = function cmp(a, b) {
 
   return ret
 }
+curriedOps.push('cmp')
 
 mpf.cmpabs = function cmpabs(a, b) {
   let shouldDestroyA = false
@@ -508,6 +515,7 @@ mpf.cmpabs = function cmpabs(a, b) {
 
   return ret
 }
+curriedOps.push('cmpabs')
 
 ;[
   ['greater', 'gt'],
@@ -533,6 +541,12 @@ mpf.cmpabs = function cmpabs(a, b) {
     }
 
     return res
+  }}[name]
+})
+
+curriedOps.forEach((name) => {
+  mpf.prototype[name] = {[name](...args) {
+    return mpf[name](this, ...args)
   }}[name]
 })
 

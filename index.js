@@ -13,6 +13,7 @@ const {
   _mpfr_init, _mpfr_init2, _mpfr_clear,
   _mpfr_set_prec, _mpfr_get_prec,
   _mpfr_set_default_prec, _mpfr_get_default_prec,
+  _mpfr_set_default_rounding_mode, _mpfr_get_default_rounding_mode,
   _mpfr_set, _mpfr_set_d, _mpfr_set_str,
   _conv_mpfr_to_str, _mpfr_free_str, _mpfr_get_d,
   _mpfr_nan_p, _mpfr_number_p, _mpfr_integer_p,
@@ -35,6 +36,29 @@ function checkValidPrec(prec) {
   }
 }
 
+function checkValidRoundingMode(roundingMode) {
+  if(
+    roundingMode == null ||
+    typeof roundingMode !== 'number' ||
+    !mpf.roundingModeNames.hasOwnProperty(roundingMode)
+  ) {
+    throw new Error(`invalid rounding mode ${roundingMode}`)
+  }
+}
+
+function normalizeRoundingMode(roundingMode) {
+  if(roundingMode == null)
+    return mpf.getDefaultRoundingMode()
+
+  if(typeof roundingMode === 'number' && mpf.roundingModeNames.hasOwnProperty(roundingMode))
+    return roundingMode
+
+  if(typeof roundingMode === 'string' && mpf.roundingModes.hasOwnProperty(roundingMode))
+    return mpf.roundingModes[roundingMode]
+
+  throw new Error(`invalid rounding mode ${roundingMode}`)
+}
+
 function isUnsignedLong(n) {
   return Number.isInteger(n) && n >= 0 && n < unsignedLongLimit
 }
@@ -46,7 +70,7 @@ function isSignedLong(n) {
 class MPFloat {
 
   constructor(initialValue, opts) {
-    const { base, roundMode, prec } = opts || {}
+    const { prec } = opts || {}
     this.mpfrPtr = _malloc(mpf.structSize)
 
     try {
@@ -59,7 +83,7 @@ class MPFloat {
 
       try {
         if(initialValue != null) {
-          this.set(initialValue, base, roundMode)
+          this.set(initialValue, opts)
         }
       } catch(e) {
         this.destroy()
@@ -88,11 +112,11 @@ class MPFloat {
   }
 
   set(newValue, opts) {
-    const { base, roundMode } = opts || {}
+    const { base, roundingMode } = opts || {}
     if(typeof newValue === 'number') {
-      _mpfr_set_d(this.mpfrPtr, newValue, roundMode || mpf.roundTiesToEven)
+      _mpfr_set_d(this.mpfrPtr, newValue, normalizeRoundingMode(roundingMode))
     } else if(mpf.isMPFloat(newValue)) {
-      _mpfr_set(this.mpfrPtr, newValue.mpfrPtr, roundMode || mpf.roundTiesToEven)
+      _mpfr_set(this.mpfrPtr, newValue.mpfrPtr, normalizeRoundingMode(roundingMode))
     } else if(
       typeof newValue === 'string' ||
       typeof newValue === 'bigint' ||
@@ -100,7 +124,7 @@ class MPFloat {
     ) {
       const valAsCStr = _malloc(newValue.length * 4 + 1)
       stringToUTF8(newValue, valAsCStr, newValue.length * 4 + 1)
-      _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, roundMode || mpf.roundTiesToEven)
+      _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, normalizeRoundingMode(roundingMode))
       _free(valAsCStr)
     } else {
       throw new Error(`can't set value to ${newValue}`)
@@ -117,8 +141,8 @@ class MPFloat {
   }
 
   toNumber(opts) {
-    const { roundMode } = opts || {}
-    return _mpfr_get_d(this.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    const { roundingMode } = opts || {}
+    return _mpfr_get_d(this.mpfrPtr, normalizeRoundingMode(roundingMode))
   }
 
   isNaN() {
@@ -162,13 +186,22 @@ mpf.structSize = _sizeof_mpfr_struct()
 mpf.precMin = _get_MPFR_PREC_MIN()
 mpf.precMax = _get_MPFR_PREC_MAX()
 
-mpf.roundTiesToEven = 0
-mpf.roundTowardZero = 1
-mpf.roundTowardPositive = 2
-mpf.roundTowardNegative = 3
-mpf.roundAwayZero = 4
-mpf.roundFaithful = 5
-mpf.roundTiesToAwayZero = -1
+mpf.roundingModeNames = {}
+mpf.roundingModes = {}
+;[
+  ['roundTiesToEven', 0],
+  ['roundTowardZero', 1],
+  ['roundTowardPositive', 2],
+  ['roundTowardNegative', 3],
+  ['roundAwayZero', 4],
+  ['roundFaithful', 5],
+  ['roundTiesToAwayZero', -1],
+].forEach(([name, value]) => {
+  mpf.roundingModeNames[value] = name;
+  mpf.roundingModes[name] = value;
+})
+Object.freeze(mpf.roundingModeNames)
+Object.freeze(mpf.roundingModes)
 
 mpf.getDefaultPrec = function getDefaultPrec() {
   return _mpfr_get_default_prec()
@@ -179,6 +212,15 @@ mpf.setDefaultPrec = function setDefaultPrec(prec) {
   _mpfr_set_default_prec(prec)
 }
 
+mpf.getDefaultRoundingMode = function getDefaultRoundingMode() {
+  return _mpfr_get_default_rounding_mode()
+}
+
+mpf.setDefaultRoundingMode = function setDefaultRoundingMode(roundingMode) {
+  if(roundingMode == null) throw new Error('missing rounding mode')
+  _mpfr_set_default_rounding_mode(normalizeRoundingMode(roundingMode))
+}
+
 mpf.isMPFloat = function isMPFloat(value) {
   return typeof value === 'object' && value instanceof MPFloat
 }
@@ -187,9 +229,9 @@ mpf.isMPFloat = function isMPFloat(value) {
   const name = `get${constant.charAt(0).toUpperCase()}${constant.slice(1)}`
   const fn = Module[`_mpfr_const_${constant}`]
   mpf[name] = {[name](opts) {
-    const { roundMode } = opts || {}
+    const { roundingMode } = opts || {}
     const ret = mpf(null, opts)
-    fn(ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    fn(ret.mpfrPtr, normalizeRoundingMode(roundingMode))
     return ret
   }}[name]
 })
@@ -211,7 +253,7 @@ mpf.isMPFloat = function isMPFloat(value) {
   mpf[name] = {[name](a, opts) {
     if(a == null) throw new Error('missing argument')
 
-    const { roundMode } = opts || {}
+    const { roundingMode } = opts || {}
     const ret = mpf(a, opts)
 
     let fn, arg
@@ -224,7 +266,7 @@ mpf.isMPFloat = function isMPFloat(value) {
       throw new Error(`can't perform ${op} on ${a}`)
     }
 
-    fn(ret.mpfrPtr, arg, roundMode || mpf.roundTiesToEven)
+    fn(ret.mpfrPtr, arg, normalizeRoundingMode(roundingMode))
     return ret
   }}[name]
 })
@@ -235,7 +277,7 @@ mpf.isMPFloat = function isMPFloat(value) {
   mpf[name] = {[name](a, opts) {
     if(a == null) throw new Error('missing argument')
 
-    const { roundMode } = opts || {}
+    const { roundingMode } = opts || {}
     const ret = mpf(a, opts)
 
     fn(ret.mpfrPtr, ret.mpfrPtr)
@@ -249,13 +291,14 @@ mpf.isMPFloat = function isMPFloat(value) {
   'atan2', 'gamma_inc',
   'beta', 'agm', 'hypot',
   'fmod', 'remainder',
+  'min', 'max',
 ].forEach((op) => {
   const name = camelize(op)
   mpf[name] = {[name](a, b, opts) {
     if(a == null) throw new Error('missing first argument')
     if(b == null) throw new Error('missing second argument')
 
-    const { roundMode } = opts || {}
+    const { roundingMode } = opts || {}
     const ret = mpf(null, opts)
     let shouldDestroyB = false
 
@@ -345,7 +388,7 @@ mpf.isMPFloat = function isMPFloat(value) {
         throw new Error(`can't perform ${op} on ${a} and ${b}`)
       }
 
-      fn(ret.mpfrPtr, arg1, arg2, roundMode || mpf.roundTiesToEven)
+      fn(ret.mpfrPtr, arg1, arg2, normalizeRoundingMode(roundingMode))
 
     } finally {
       if(shouldDestroyB) {
@@ -368,10 +411,10 @@ mpf.isMPFloat = function isMPFloat(value) {
       throw new Error(`can't perform ${op} with invalid n=${n} (a = ${a})`)
     }
 
-    const { roundMode } = opts || {}
+    const { roundingMode } = opts || {}
     const ret = mpf(a, opts)
 
-    fn(ret.mpfrPtr, n, ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
+    fn(ret.mpfrPtr, n, ret.mpfrPtr, normalizeRoundingMode(roundingMode))
 
     return ret
   }}[name]

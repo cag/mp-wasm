@@ -91,12 +91,12 @@ class MPFloat {
     const { base, roundMode } = opts || {}
     if(typeof newValue === 'number') {
       _mpfr_set_d(this.mpfrPtr, newValue, roundMode || mpf.roundTiesToEven)
-    } else if(typeof newValue === 'object' && newValue instanceof MPFloat) {
+    } else if(mpf.isMPFloat(newValue)) {
       _mpfr_set(this.mpfrPtr, newValue.mpfrPtr, roundMode || mpf.roundTiesToEven)
     } else if(
       typeof newValue === 'string' ||
       typeof newValue === 'bigint' ||
-      typeof newValue === 'object' && !(newValue instanceof MPFloat)
+      typeof newValue === 'object'
     ) {
       const valAsCStr = _malloc(newValue.length * 4 + 1)
       stringToUTF8(newValue, valAsCStr, newValue.length * 4 + 1)
@@ -175,6 +175,10 @@ mpf.setDefaultPrec = function setDefaultPrec(prec) {
   _mpfr_set_default_prec(prec)
 }
 
+mpf.isMPFloat = function isMPFloat(value) {
+  return typeof value === 'object' && value instanceof MPFloat
+}
+
 ;[
   'sqr', 'sqrt', 'rec_sqrt', 'cbrt', 'neg', 'abs',
   'log', 'log2', 'log10', 'log1p',
@@ -208,7 +212,12 @@ mpf.setDefaultPrec = function setDefaultPrec(prec) {
   }}[name]
 })
 
-;['add', 'sub', 'mul', 'div'].forEach((op) => {
+;[
+  'add', 'sub', 'mul', 'div',
+  'rootn', 'pow', 'dim',
+  'atan2', 'gamma_inc',
+  'beta', 'agm', 'hypot',
+].forEach((op) => {
   const name = camelize(op)
   mpf[name] = {[name](a, b, opts) {
     const { roundMode } = opts || {}
@@ -216,58 +225,90 @@ mpf.setDefaultPrec = function setDefaultPrec(prec) {
     let shouldDestroyB = false
 
     try {
-      if(
-        typeof a === 'string' ||
-        typeof a === 'bigint' ||
-        typeof a === 'object' && !(a instanceof MPFloat)
-      ) {
-        ret.set(a, opts)
-        a = ret
-      }
-
-      if(
-        typeof b === 'string' ||
-        typeof b === 'bigint' ||
-        typeof b === 'object' && !(b instanceof MPFloat)
-      ) {
-        b = mpf(b, opts)
-        shouldDestroyB = true
-      }
-
       let fn, arg1, arg2
 
-      if(typeof a === 'object' && a instanceof MPFloat) {
-        if(typeof b === 'object' && b instanceof MPFloat) {
-          fn = Module[`_mpfr_${op}`]
-          arg1 = a.mpfrPtr
-          arg2 = b.mpfrPtr
-        } else if(typeof b === 'number') {
-          fn = Module[`_mpfr_${op}_d`]
-          arg1 = a.mpfrPtr
-          arg2 = b
-        }
-      } else if(typeof a === 'number') {
-        if(typeof b === 'object' && b instanceof MPFloat) {
-          fn = Module[`_mpfr_d_${op}`]
-          if(fn) {
-            arg1 = a
-            arg2 = b.mpfrPtr
-          } else {
-            // assume op is commutative if _mpfr_d_${op} does not exist
-            fn = Module[`_mpfr_${op}_d`]
-            arg1 = b.mpfrPtr
-            arg2 = a
-          }
-        } else if(typeof b === 'number') {
-          fn = Module[`_mpfr_${op}_d`]
-          _mpfr_set_d(ret.mpfrPtr, a, roundMode || mpf.roundTiesToEven)
-          arg1 = ret.mpfrPtr
-          arg2 = b
-        }
+      // here is a long chain of responsibility...
+      // castless cases
+      if((fn = Module[`_mpfr_d_${op}`]) && typeof a === 'number' && mpf.isMPFloat(b)) {
+        arg1 = a
+        arg2 = b.mpfrPtr
+      } else if((fn = Module[`_mpfr_${op}_d`]) && mpf.isMPFloat(a) && typeof b === 'number') {
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if(fn && typeof a === 'number' && mpf.isMPFloat(b)) {
+        // assume op is commutative if _mpfr_d_${op} does not exist
+        arg1 = b.mpfrPtr
+        arg2 = a
+      } else if((fn = Module[`_mpfr_ui_${op}_ui`]) && isUnsignedLong(a) && isUnsignedLong(b)) {
+        arg1 = a
+        arg2 = b
+      } else if((fn = Module[`_mpfr_${op}_ui`]) && mpf.isMPFloat(a) && isUnsignedLong(b)) {
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if((fn = Module[`_mpfr_${op}_si`]) && mpf.isMPFloat(a) && isSignedLong(b)) {
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if((fn = Module[`_mpfr_ui_${op}`]) && isUnsignedLong(a) && mpf.isMPFloat(b)) {
+        arg1 = a
+        arg2 = b.mpfrPtr
+      } else if((fn = Module[`_mpfr_${op}`]) && mpf.isMPFloat(a) && mpf.isMPFloat(b)) {
+        arg1 = a.mpfrPtr
+        arg2 = b.mpfrPtr
       }
-
-      if(fn == null)
+      // casted cases
+      else if((fn = Module[`_mpfr_d_${op}`]) && typeof a === 'number') {
+        ret.set(b, opts)
+        b = ret
+        arg1 = a
+        arg2 = b.mpfrPtr
+      } else if((fn = Module[`_mpfr_${op}_d`]) && typeof b === 'number') {
+        ret.set(a, opts)
+        a = ret
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if(fn && typeof a === 'number') {
+        // (commutativity assumption again)
+        ret.set(b, opts)
+        b = ret
+        arg1 = b.mpfrPtr
+        arg2 = a
+      } else if((fn = Module[`_mpfr_${op}_ui`]) && isUnsignedLong(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if((fn = Module[`_mpfr_${op}_si`]) && isSignedLong(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = a.mpfrPtr
+        arg2 = b
+      } else if((fn = Module[`_mpfr_ui_${op}`]) && isUnsignedLong(a)) {
+        ret.set(b, opts)
+        b = ret
+        arg1 = a
+        arg2 = b.mpfrPtr
+      } else if((fn = Module[`_mpfr_${op}`]) && mpf.isMPFloat(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = a.mpfrPtr
+        arg2 = b.mpfrPtr
+      } else if(fn && mpf.isMPFloat(a)) {
+        ret.set(b, opts)
+        b = ret
+        arg1 = a.mpfrPtr
+        arg2 = b.mpfrPtr
+      } else if(fn) {
+        ret.set(a, opts)
+        a = ret
+        b = mpf(b, opts)
+        shouldDestroyB = true
+        arg1 = a.mpfrPtr
+        arg2 = b.mpfrPtr
+      }
+      // couldn't find anything
+      else {
         throw new Error(`can't perform ${op} on ${a} and ${b}`)
+      }
 
       fn(ret.mpfrPtr, arg1, arg2, roundMode || mpf.roundTiesToEven)
 
@@ -277,6 +318,23 @@ mpf.setDefaultPrec = function setDefaultPrec(prec) {
         b = null
       }
     }
+
+    return ret
+  }}[name]
+})
+
+;['jn', 'yn'].forEach((op) => {
+  const name = camelize(op)
+  const fn = Module[`_mpfr_${op}`]
+  mpf[name] = {[name](n, a, opts) {
+    if(!isSignedLong(n)) {
+      throw new Error(`can't perform ${op} with invalid n=${n} (a = ${a})`)
+    }
+
+    const { roundMode } = opts || {}
+    const ret = mpf(a, opts)
+
+    fn(ret.mpfrPtr, n, ret.mpfrPtr, roundMode || mpf.roundTiesToEven)
 
     return ret
   }}[name]
@@ -309,14 +367,14 @@ mpf.cmp = function cmp(a, b) {
 
     let ret
 
-    if(typeof a === 'object' && a instanceof MPFloat) {
-      if(typeof b === 'object' && b instanceof MPFloat) {
+    if(mpf.isMPFloat(a)) {
+      if(mpf.isMPFloat(b)) {
         ret = _mpfr_cmp(a.mpfrPtr, b.mpfrPtr)
       } else if(typeof b === 'number') {
         ret = _mpfr_cmp_d(a.mpfrPtr, b)
       }
     } else if(typeof a === 'number') {
-      if(typeof b === 'object' && b instanceof MPFloat) {
+      if(mpf.isMPFloat(b)) {
         ret = -_mpfr_cmp_d(b.mpfrPtr, a)
       } else if(typeof b === 'number') {
         a = mpf(a)
@@ -346,13 +404,13 @@ mpf.cmpabs = function cmpabs(a, b) {
   let shouldDestroyA = false
   let shouldDestroyB = false
 
-  if(!(typeof a === 'object') || !(a instanceof MPFloat)) {
+  if(!mpf.isMPFloat(a)) {
     a = mpf(a)
     shouldDestroyA = true
   }
 
-  if(!(typeof a === 'object') || !(a instanceof MPFloat)) {
-    a = mpf(b)
+  if(!mpf.isMPFloat(b)) {
+    b = mpf(b)
     shouldDestroyB = true
   }
 
@@ -382,7 +440,7 @@ mpf.cmpabs = function cmpabs(a, b) {
   mpf.prototype[name] = {[name](other) {
     let shouldDestroyOther = false
 
-    if(!(typeof other === 'object') || !(other instanceof MPFloat)) {
+    if(!mpf.isMPFloat(other)) {
       other = mpf(other)
       shouldDestroyOther = true
     }

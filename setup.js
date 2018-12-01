@@ -140,9 +140,10 @@ syscallNames = {
 
 ;[6, 54, 140, 145, 146].forEach((n) => {
   const name = `___syscall${n}`
-  envImports[name] = {[name](x) {
-    throw new Error(`syscall ${n} (${syscallNames[n]}) not supported yet`)
-  }}[name]
+  const altName = syscallNames[n]
+  envImports[name] = {[altName](x) {
+    throw new Error(`syscall ${n} (${altName}) not supported yet`)
+  }}[altName]
 })
 
 module.exports = {

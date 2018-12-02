@@ -1,0 +1,7 @@
+gmp-*/
+mpc-*/
+mpfr-*/
+
+!.eslintrc.js
+mp.js
+mp-wasm.js

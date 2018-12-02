@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint .",
     "build:wasm": "make",
     "build:web": "browserify browser.js -o mp-wasm.js",
     "build": "npm run build:wasm && npm run build:web",
@@ -24,6 +25,10 @@
     "lru_map": "^0.3.3"
   },
   "devDependencies": {
-    "browserify": "^16.2.3"
+    "browserify": "^16.2.3",
+    "eslint": "^5.9.0",
+    "eslint-config-prettier": "^3.3.0",
+    "eslint-plugin-prettier": "^3.0.0",
+    "prettier": "1.15.3"
   }
 }

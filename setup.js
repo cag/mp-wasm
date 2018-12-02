@@ -61,13 +61,7 @@ const envImports = {
   },
 
   abortStackOverflow(allocSize) {
-    throw new Error(
-      "Stack overflow! Attempted to allocate " +
-        allocSize +
-        " bytes on the stack, but stack has only " +
-        (STACK_MAX - stackSave() + allocSize) +
-        " bytes available!"
-    );
+    throw new Error("stack overflow");
   },
 
   abortOnCannotGrowMemory() {

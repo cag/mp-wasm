@@ -6,12 +6,24 @@ size_t EMSCRIPTEN_KEEPALIVE sizeof_unsigned_long() {
     return sizeof(unsigned long);
 }
 
-size_t EMSCRIPTEN_KEEPALIVE sizeof_mp_limb_t() {
-    return sizeof(mp_limb_t);
-}
-
 size_t EMSCRIPTEN_KEEPALIVE sizeof_mpfr_struct() {
     return sizeof(__mpfr_struct);
+}
+
+mpfr_sign_t EMSCRIPTEN_KEEPALIVE get_mpfr_sign(mpfr_t rop) {
+    return rop[0]._mpfr_sign;
+}
+
+void EMSCRIPTEN_KEEPALIVE set_mpfr_sign(mpfr_t rop, mpfr_sign_t sign) {
+    rop[0]._mpfr_sign = sign;
+}
+
+mpfr_exp_t EMSCRIPTEN_KEEPALIVE get_mpfr_exp(mpfr_t rop) {
+    return rop[0]._mpfr_exp;
+}
+
+void EMSCRIPTEN_KEEPALIVE set_mpfr_exp(mpfr_t rop, mpfr_exp_t exp) {
+    rop[0]._mpfr_exp = exp;
 }
 
 int EMSCRIPTEN_KEEPALIVE get_MPFR_PREC_MIN() {

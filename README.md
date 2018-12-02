@@ -176,10 +176,6 @@ The following checks are also available:
 
 ## Future Stuff
 
-### Fix Memory Leakage
-
-Okay, so you can't keep calculating with this *forever* yet, unless you're super careful, which really means you have to call `instance.destroy()` on every `mpf` you make after you're done with them if you're doing some really intense stuff. With that said this can be addressed though, so maybe one day this section of the README will be gone.
-
 ### Add MPC, MPFI, and/or iRRAM?
 
 At least some complex ops would be nice.

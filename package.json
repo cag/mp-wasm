@@ -6,6 +6,7 @@
   "scripts": {
     "build:wasm": "make",
     "build:web": "browserify browser.js -o mp-wasm.js",
+    "build": "npm run build:wasm && npm run build:web",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -19,7 +20,8 @@
   },
   "homepage": "https://github.com/cag/mp-wasm#readme",
   "dependencies": {
-    "humps": "^2.0.1"
+    "humps": "^2.0.1",
+    "lru_map": "^0.3.3"
   },
   "devDependencies": {
     "browserify": "^16.2.3"

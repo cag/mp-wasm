@@ -3,13 +3,21 @@ const { camelize } = require('humps')
 module.exports = function(wasmInstance, memUtils) {
 
   const wasmExports = wasmInstance.exports
-  const { ptrToString, stringToPtr } = memUtils
+  const {
+    isWord, isSword,
+    ensureRegister, initRegister, clearRegister,
+    memViews,
+    wordLimit, swordLimits,
+    cstrToString, stringToNewCStr,
+  } = memUtils
 
   const {
     _malloc, _free,
     _sizeof_mp_limb_t, _sizeof_mpfr_struct, _sizeof_unsigned_long,
     _get_MPFR_PREC_MIN, _get_MPFR_PREC_MAX,
     _mpfr_init, _mpfr_init2, _mpfr_clear,
+    _get_mpfr_sign, _set_mpfr_sign, _get_mpfr_exp, _set_mpfr_exp,
+    _mpfr_custom_get_size, _mpfr_custom_get_significand, 
     _mpfr_set_prec, _mpfr_get_prec,
     _mpfr_set_default_prec, _mpfr_get_default_prec,
     _mpfr_set_default_rounding_mode, _mpfr_get_default_rounding_mode,
@@ -17,11 +25,6 @@ module.exports = function(wasmInstance, memUtils) {
     _conv_mpfr_to_str, _mpfr_free_str, _mpfr_get_d,
     _mpfr_nan_p, _mpfr_number_p, _mpfr_integer_p,
   } = wasmExports
-
-  const unsignedLongSize = _sizeof_unsigned_long()
-  const unsignedLongLimit = 2 ** (unsignedLongSize * 4)
-  const signedLongLimits = [-(2 ** (unsignedLongSize * 4 - 1)), 2 ** (unsignedLongSize * 4 - 1)]
-  const mpLimbSize = _sizeof_mp_limb_t()
 
   function checkValidPrec(prec) {
     if(
@@ -45,6 +48,16 @@ module.exports = function(wasmInstance, memUtils) {
     }
   }
 
+  function normalizeBaseOption(base) {
+    if(base == null)
+      return 0
+
+    if(Number.isInteger(base) && (base == 0 || base >= 2 && base <= 62))
+      return base
+
+    throw new Error(`invalid base ${base}`)
+  }
+
   function normalizeRoundingMode(roundingMode) {
     if(roundingMode == null)
       return mpf.getDefaultRoundingMode()
@@ -58,71 +71,98 @@ module.exports = function(wasmInstance, memUtils) {
     throw new Error(`invalid rounding mode ${roundingMode}`)
   }
 
-  function isUnsignedLong(n) {
-    return Number.isInteger(n) && n >= 0 && n < unsignedLongLimit
-  }
-
-  function isSignedLong(n) {
-    return Number.isInteger(n) && n >= signedLongLimits[0] && n < signedLongLimits[1]
-  }
+  const readFromMemory = Symbol('readFromMemory')
+  const setRaw = Symbol('setRaw')
 
   class MPFloat {
 
     constructor(initialValue, opts) {
       const { prec } = opts || {}
-      this.mpfrPtr = _malloc(mpf.structSize)
 
-      try {
-        if (prec == null) {
-          _mpfr_init(this.mpfrPtr)
+      if(prec != null) {
+        checkValidPrec(prec)
+        this.precision = prec
+      }
+
+      const ptr = ensureRegister(this)
+
+      if(initialValue != null) {
+        this[setRaw](ptr, initialValue, opts)
+      }
+
+      this[readFromMemory](ptr)
+    }
+
+    [readFromMemory](ptr) {
+      this.precision = _mpfr_get_prec(ptr)
+      this.sign = _get_mpfr_sign(ptr)
+      this.exp = _get_mpfr_exp(ptr)
+      const significandSize = _mpfr_custom_get_size(this.precision)
+
+      if(this.significand != null && significandSize <= this.significand.buffer.byteLength) {
+        this.significand = this.significand.subarray(0, significandSize)
+      } else {
+        this.significand = new Uint8Array(new ArrayBuffer(significandSize))
+      }
+
+      const significandPtr = _mpfr_custom_get_significand(ptr)
+
+      this.significand.set(memViews.uint8.subarray(significandPtr, significandPtr + significandSize))
+    }
+
+    [initRegister](ptr) {
+      if(this.precision != null && this.sign != null && this.exp != null && this.significand != null) {
+        _mpfr_init2(ptr, this.precision)
+        _set_mpfr_sign(ptr, this.sign)
+        _set_mpfr_exp(ptr, this.exp)
+
+        const significandPtr = _mpfr_custom_get_significand(ptr)
+        memViews.uint8.set(this.significand, significandPtr)
+      } else {
+        if(this.precision == null) {
+          _mpfr_init(ptr)
         } else {
-          checkValidPrec(prec)
-          _mpfr_init2(this.mpfrPtr, prec)
+          _mpfr_init2(ptr, this.precision)
         }
-
-        try {
-          if(initialValue != null) {
-            this.set(initialValue, opts)
-          }
-        } catch(e) {
-          this.destroy()
-          throw e
-        }
-      } catch(e) {
-        _free(this.mpfrPtr)
-        this.mpfrPtr = 0
-        throw e
       }
     }
 
-    destroy() {
-      _mpfr_clear(this.mpfrPtr)
-      _free(this.mpfrPtr)
-      this.mpfrPtr = 0
+    [clearRegister](ptr) {
+      _mpfr_clear(ptr)
     }
 
     setPrec(prec) {
       checkValidPrec(prec)
-      return _mpfr_set_prec(this.mpfrPtr, prec)
+      const ptr = ensureRegister(this)
+      _mpfr_set_prec(ptr, prec)
+      this[readFromMemory](ptr)
     }
 
     getPrec() {
-      return _mpfr_get_prec(this.mpfrPtr)
+      return this.precision || mpf.getDefaultPrec()
     }
 
     set(newValue, opts) {
+      const ptr = ensureRegister(this)
+      this[setRaw](ptr, newValue, opts)
+      this[readFromMemory](ptr)
+    }
+
+    [setRaw](ptr, newValue, opts) {
       const { base, roundingMode } = opts || {}
+
       if(typeof newValue === 'number') {
-        _mpfr_set_d(this.mpfrPtr, newValue, normalizeRoundingMode(roundingMode))
+        _mpfr_set_d(ptr, newValue, normalizeRoundingMode(roundingMode))
       } else if(mpf.isMPFloat(newValue)) {
-        _mpfr_set(this.mpfrPtr, newValue.mpfrPtr, normalizeRoundingMode(roundingMode))
+        const ptr2 = ensureRegister(newValue)
+        _mpfr_set(ptr, ptr2, normalizeRoundingMode(roundingMode))
       } else if(
         typeof newValue === 'string' ||
         typeof newValue === 'bigint' ||
         typeof newValue === 'object'
       ) {
-        const valAsCStr = stringToPtr(newValue)
-        _mpfr_set_str(this.mpfrPtr, valAsCStr, base || 0, normalizeRoundingMode(roundingMode))
+        const valAsCStr = stringToNewCStr(newValue)
+        _mpfr_set_str(ptr, valAsCStr, normalizeBaseOption(base), normalizeRoundingMode(roundingMode))
         _free(valAsCStr)
       } else {
         throw new Error(`can't set value to ${newValue}`)
@@ -130,29 +170,34 @@ module.exports = function(wasmInstance, memUtils) {
     }
 
     toString() {
-      const ptr = _conv_mpfr_to_str(this.mpfrPtr)
-      if(ptr === 0)
-        throw new Error(`could not convert mpfr at ${this.mpfrPtr} to string`)
-      const ret = ptrToString(ptr)
-      _mpfr_free_str(ptr)
+      const ptr = ensureRegister(this)
+      const strPtr = _conv_mpfr_to_str(ptr)
+      if(strPtr === 0)
+        throw new Error(`could not convert mpfr at ${ptr} to string`)
+      const ret = cstrToString(strPtr)
+      _mpfr_free_str(strPtr)
       return ret
     }
 
     toNumber(opts) {
       const { roundingMode } = opts || {}
-      return _mpfr_get_d(this.mpfrPtr, normalizeRoundingMode(roundingMode))
+      const ptr = ensureRegister(this)
+      return _mpfr_get_d(ptr, normalizeRoundingMode(roundingMode))
     }
 
     isNaN() {
-      return Boolean(_mpfr_nan_p(this.mpfrPtr))
+      const ptr = ensureRegister(this)
+      return Boolean(_mpfr_nan_p(ptr))
     }
 
     isFinite() {
-      return Boolean(_mpfr_number_p(this.mpfrPtr))
+      const ptr = ensureRegister(this)
+      return Boolean(_mpfr_number_p(ptr))
     }
 
     isInteger() {
-      return Boolean(_mpfr_integer_p(this.mpfrPtr))
+      const ptr = ensureRegister(this)
+      return Boolean(_mpfr_integer_p(ptr))
     }
 
     [Symbol.for('nodejs.util.inspect.custom')]() {
@@ -164,6 +209,10 @@ module.exports = function(wasmInstance, memUtils) {
   mpf.prototype = MPFloat.prototype
 
   mpf.structSize = _sizeof_mpfr_struct()
+  if(mpf.structSize > memUtils.registerSize)
+    console.warn('mpfr struct size', mpf.structSize,
+      'bigger than register size', memUtils.registerSize)
+
   mpf.precMin = _get_MPFR_PREC_MIN()
   mpf.precMax = _get_MPFR_PREC_MAX()
 
@@ -212,7 +261,7 @@ module.exports = function(wasmInstance, memUtils) {
     mpf[name] = {[name](opts) {
       const { roundingMode } = opts || {}
       const ret = mpf(null, opts)
-      fn(ret.mpfrPtr, normalizeRoundingMode(roundingMode))
+      fn(ensureRegister(ret), normalizeRoundingMode(roundingMode))
       return ret
     }}[name]
   })
@@ -238,18 +287,19 @@ module.exports = function(wasmInstance, memUtils) {
 
       const { roundingMode } = opts || {}
       const ret = mpf(a, opts)
+      const retPtr = ensureRegister(ret)
 
       let fn, arg
 
-      if((fn = wasmExports[`_mpfr_${op}_ui`]) && isUnsignedLong(a)) {
+      if((fn = wasmExports[`_mpfr_${op}_ui`]) && isWord(a)) {
         arg = a
       } else if(fn = wasmExports[`_mpfr_${op}`]) {
-        arg = ret.mpfrPtr
+        arg = retPtr
       } else {
         throw new Error(`can't perform ${op} on ${a}`)
       }
 
-      fn(ret.mpfrPtr, arg, normalizeRoundingMode(roundingMode))
+      fn(retPtr, arg, normalizeRoundingMode(roundingMode))
       return ret
     }}[name]
     if(name !== 'fac') curriedOps.push(name)
@@ -263,8 +313,9 @@ module.exports = function(wasmInstance, memUtils) {
 
       const { roundingMode } = opts || {}
       const ret = mpf(a, opts)
+      const retPtr = ensureRegister(ret)
 
-      fn(ret.mpfrPtr, ret.mpfrPtr)
+      fn(retPtr, retPtr)
       return ret
     }}[name]
     curriedOps.push(name)
@@ -285,103 +336,92 @@ module.exports = function(wasmInstance, memUtils) {
 
       const { roundingMode } = opts || {}
       const ret = mpf(null, opts)
-      let shouldDestroyB = false
 
-      try {
-        let fn, arg1, arg2
+      let fn, arg1, arg2
 
-        // here is a long chain of responsibility...
-        // castless cases
-        if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number' && mpf.isMPFloat(b)) {
-          arg1 = a
-          arg2 = b.mpfrPtr
-        } else if((fn = wasmExports[`_mpfr_${op}_d`]) && mpf.isMPFloat(a) && typeof b === 'number') {
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if(fn && typeof a === 'number' && mpf.isMPFloat(b)) {
-          // assume op is commutative if _mpfr_d_${op} does not exist
-          arg1 = b.mpfrPtr
-          arg2 = a
-        } else if((fn = wasmExports[`_mpfr_ui_${op}_ui`]) && isUnsignedLong(a) && isUnsignedLong(b)) {
-          arg1 = a
-          arg2 = b
-        } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && mpf.isMPFloat(a) && isUnsignedLong(b)) {
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if((fn = wasmExports[`_mpfr_${op}_si`]) && mpf.isMPFloat(a) && isSignedLong(b)) {
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isUnsignedLong(a) && mpf.isMPFloat(b)) {
-          arg1 = a
-          arg2 = b.mpfrPtr
-        } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(a) && mpf.isMPFloat(b)) {
-          arg1 = a.mpfrPtr
-          arg2 = b.mpfrPtr
-        }
-        // casted cases
-        else if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number') {
-          ret.set(b, opts)
-          b = ret
-          arg1 = a
-          arg2 = b.mpfrPtr
-        } else if((fn = wasmExports[`_mpfr_${op}_d`]) && typeof b === 'number') {
-          ret.set(a, opts)
-          a = ret
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if(fn && typeof a === 'number') {
-          // (commutativity assumption again)
-          ret.set(b, opts)
-          b = ret
-          arg1 = b.mpfrPtr
-          arg2 = a
-        } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && isUnsignedLong(b)) {
-          ret.set(a, opts)
-          a = ret
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if((fn = wasmExports[`_mpfr_${op}_si`]) && isSignedLong(b)) {
-          ret.set(a, opts)
-          a = ret
-          arg1 = a.mpfrPtr
-          arg2 = b
-        } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isUnsignedLong(a)) {
-          ret.set(b, opts)
-          b = ret
-          arg1 = a
-          arg2 = b.mpfrPtr
-        } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(b)) {
-          ret.set(a, opts)
-          a = ret
-          arg1 = a.mpfrPtr
-          arg2 = b.mpfrPtr
-        } else if(fn && mpf.isMPFloat(a)) {
-          ret.set(b, opts)
-          b = ret
-          arg1 = a.mpfrPtr
-          arg2 = b.mpfrPtr
-        } else if(fn) {
-          ret.set(a, opts)
-          a = ret
-          b = mpf(b, opts)
-          shouldDestroyB = true
-          arg1 = a.mpfrPtr
-          arg2 = b.mpfrPtr
-        }
-        // couldn't find anything
-        else {
-          throw new Error(`can't perform ${op} on ${a} and ${b}`)
-        }
-
-        fn(ret.mpfrPtr, arg1, arg2, normalizeRoundingMode(roundingMode))
-
-      } finally {
-        if(shouldDestroyB) {
-          b.destroy()
-          b = null
-        }
+      // here is a long chain of responsibility...
+      // castless cases
+      if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number' && mpf.isMPFloat(b)) {
+        arg1 = a
+        arg2 = ensureRegister(b)
+      } else if((fn = wasmExports[`_mpfr_${op}_d`]) && mpf.isMPFloat(a) && typeof b === 'number') {
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if(fn && typeof a === 'number' && mpf.isMPFloat(b)) {
+        // assume op is commutative if _mpfr_d_${op} does not exist
+        arg1 = ensureRegister(b)
+        arg2 = a
+      } else if((fn = wasmExports[`_mpfr_ui_${op}_ui`]) && isWord(a) && isWord(b)) {
+        arg1 = a
+        arg2 = b
+      } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && mpf.isMPFloat(a) && isWord(b)) {
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if((fn = wasmExports[`_mpfr_${op}_si`]) && mpf.isMPFloat(a) && isSword(b)) {
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isWord(a) && mpf.isMPFloat(b)) {
+        arg1 = a
+        arg2 = ensureRegister(b)
+      } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(a) && mpf.isMPFloat(b)) {
+        arg1 = ensureRegister(a)
+        arg2 = ensureRegister(b)
+      }
+      // casted cases
+      else if((fn = wasmExports[`_mpfr_d_${op}`]) && typeof a === 'number') {
+        ret.set(b, opts)
+        b = ret
+        arg1 = a
+        arg2 = ensureRegister(b)
+      } else if((fn = wasmExports[`_mpfr_${op}_d`]) && typeof b === 'number') {
+        ret.set(a, opts)
+        a = ret
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if(fn && typeof a === 'number') {
+        // (commutativity assumption again)
+        ret.set(b, opts)
+        b = ret
+        arg1 = ensureRegister(b)
+        arg2 = a
+      } else if((fn = wasmExports[`_mpfr_${op}_ui`]) && isWord(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if((fn = wasmExports[`_mpfr_${op}_si`]) && isSword(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = ensureRegister(a)
+        arg2 = b
+      } else if((fn = wasmExports[`_mpfr_ui_${op}`]) && isWord(a)) {
+        ret.set(b, opts)
+        b = ret
+        arg1 = a
+        arg2 = ensureRegister(b)
+      } else if((fn = wasmExports[`_mpfr_${op}`]) && mpf.isMPFloat(b)) {
+        ret.set(a, opts)
+        a = ret
+        arg1 = ensureRegister(a)
+        arg2 = ensureRegister(b)
+      } else if(fn && mpf.isMPFloat(a)) {
+        ret.set(b, opts)
+        b = ret
+        arg1 = ensureRegister(a)
+        arg2 = ensureRegister(b)
+      } else if(fn) {
+        ret.set(a, opts)
+        a = ret
+        b = mpf(b, opts)
+        arg1 = ensureRegister(a)
+        arg2 = ensureRegister(b)
+      }
+      // couldn't find anything
+      else {
+        throw new Error(`can't perform ${op} on ${a} and ${b}`)
       }
 
+      fn(ensureRegister(ret), arg1, arg2, normalizeRoundingMode(roundingMode))
       return ret
     }}[name]
     curriedOps.push(name)
@@ -393,108 +433,73 @@ module.exports = function(wasmInstance, memUtils) {
     mpf[name] = {[name](n, a, opts) {
       if(n == null) throw new Error('missing n')
       if(a == null) throw new Error('missing argument')
-      if(!isSignedLong(n)) {
+      if(!isSword(n)) {
         throw new Error(`can't perform ${op} with invalid n=${n} (a = ${a})`)
       }
 
       const { roundingMode } = opts || {}
       const ret = mpf(a, opts)
+      const retPtr = ensureRegister(ret)
 
-      fn(ret.mpfrPtr, n, ret.mpfrPtr, normalizeRoundingMode(roundingMode))
+      fn(retPtr, n, retPtr, normalizeRoundingMode(roundingMode))
 
       return ret
     }}[name]
-    curriedOps.push(name)
   })
 
   const { _mpfr_cmp, _mpfr_cmp_d, _mpfr_cmpabs } = wasmExports
 
   mpf.cmp = function cmp(a, b) {
-    let shouldDestroyA = false
-    let shouldDestroyB = false
+    if(
+      typeof a === 'string' ||
+      typeof a === 'bigint' ||
+      typeof a === 'object' && !(a instanceof MPFloat)
+    ) {
+      a = mpf(a.toString())
+    }
 
-    try {
-      if(
-        typeof a === 'string' ||
-        typeof a === 'bigint' ||
-        typeof a === 'object' && !(a instanceof MPFloat)
-      ) {
-        a = mpf(a.toString())
-        shouldDestroyA = true
+    if(
+      typeof b === 'string' ||
+      typeof b === 'bigint' ||
+      typeof b === 'object' && !(b instanceof MPFloat)
+    ) {
+      b = mpf(b.toString())
+    }
+
+    let ret
+
+    if(mpf.isMPFloat(a)) {
+      if(mpf.isMPFloat(b)) {
+        ret = _mpfr_cmp(ensureRegister(a), ensureRegister(b))
+      } else if(typeof b === 'number') {
+        ret = _mpfr_cmp_d(ensureRegister(a), b)
       }
-
-      if(
-        typeof b === 'string' ||
-        typeof b === 'bigint' ||
-        typeof b === 'object' && !(b instanceof MPFloat)
-      ) {
-        b = mpf(b.toString())
-        shouldDestroyB = true
-      }
-
-      let ret
-
-      if(mpf.isMPFloat(a)) {
-        if(mpf.isMPFloat(b)) {
-          ret = _mpfr_cmp(a.mpfrPtr, b.mpfrPtr)
-        } else if(typeof b === 'number') {
-          ret = _mpfr_cmp_d(a.mpfrPtr, b)
-        }
-      } else if(typeof a === 'number') {
-        if(mpf.isMPFloat(b)) {
-          ret = -_mpfr_cmp_d(b.mpfrPtr, a)
-        } else if(typeof b === 'number') {
-          a = mpf(a)
-          shouldDestroyA = true
-          ret = _mpfr_cmp_d(a.mpfrPtr, b)
-        }
-      }
-
-      if(ret == null)
-        throw new Error(`don't know how to cmp ${a} and ${b}`)
-    } finally {
-      if(shouldDestroyA) {
-        a.destroy()
-        a = null
-      }
-
-      if(shouldDestroyB) {
-        b.destroy()
-        b = null
+    } else if(typeof a === 'number') {
+      if(mpf.isMPFloat(b)) {
+        ret = -_mpfr_cmp_d(ensureRegister(b), a)
+      } else if(typeof b === 'number') {
+        a = mpf(a)
+        ret = _mpfr_cmp_d(ensureRegister(a), b)
       }
     }
+
+    if(ret == null)
+      throw new Error(`don't know how to cmp ${a} and ${b}`)
 
     return ret
   }
   curriedOps.push('cmp')
 
   mpf.cmpabs = function cmpabs(a, b) {
-    let shouldDestroyA = false
-    let shouldDestroyB = false
-
     if(!mpf.isMPFloat(a)) {
       a = mpf(a)
-      shouldDestroyA = true
     }
 
     if(!mpf.isMPFloat(b)) {
       b = mpf(b)
-      shouldDestroyB = true
     }
 
-    const ret = _mpfr_cmpabs(a.mpfrPtr, b.mpfrPtr)
-
-    if(shouldDestroyA) {
-      a.destroy()
-      a = null
-    }
-
-    if(shouldDestroyB) {
-      b.destroy()
-      b = null
-    }
-
-    return ret
+    return _mpfr_cmpabs(ensureRegister(a), ensureRegister(b))
   }
   curriedOps.push('cmpabs')
 
@@ -507,21 +512,10 @@ module.exports = function(wasmInstance, memUtils) {
     ['lessgreater', 'lgt'],
   ].forEach(([op, name]) => {
     mpf.prototype[name] = {[name](other) {
-      let shouldDestroyOther = false
-
       if(!mpf.isMPFloat(other)) {
         other = mpf(other)
-        shouldDestroyOther = true
       }
-
-      const res = Boolean(wasmExports[`_mpfr_${op}_p`](this.mpfrPtr, other.mpfrPtr))
-
-      if(shouldDestroyOther) {
-        other.destroy()
-        other = null
-      }
-
-      return res
+      return Boolean(wasmExports[`_mpfr_${op}_p`](ensureRegister(this), ensureRegister(other)))
     }}[name]
   })
 

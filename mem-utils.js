@@ -44,8 +44,7 @@ module.exports = function(memory, wasmInstance) {
   const objsRegisterNumMap = new WeakMap();
 
   function getRegisterPtr(n) {
-    if (!Number.isInteger(n) || n < 0 || n >= numRegisters)
-      throw new Error(`invalid register number ${n}`);
+    assert(Number.isInteger(n) && n >= 0 && n < numRegisters, `invalid register number ${n}`)
     return registersBeginPtr + n * registerSize;
   }
 

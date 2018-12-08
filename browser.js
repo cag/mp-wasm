@@ -1,4 +1,4 @@
-global.fetchMPWasm = function fetchMPWasm(source) {
+window.fetchMPWasm = function fetchMPWasm(source) {
   const { importObj, errNoObj } = require("./setup");
   const memory = importObj.env.memory;
 

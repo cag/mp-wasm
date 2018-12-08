@@ -79,7 +79,7 @@ module.exports = function(wasmInstance, memUtils) {
   }
 
   function normalizeRoundingMode(roundingMode) {
-    if (roundingMode == null) return mpf.getDefaultRoundingMode();
+    if (roundingMode == null) return _mpfr_get_default_rounding_mode();
 
     if (
       typeof roundingMode === "number" &&
@@ -291,7 +291,7 @@ module.exports = function(wasmInstance, memUtils) {
   };
 
   mpf.getDefaultRoundingMode = function getDefaultRoundingMode() {
-    return _mpfr_get_default_rounding_mode();
+    return mpf.roundingModeNames[_mpfr_get_default_rounding_mode()];
   };
 
   mpf.setDefaultRoundingMode = function setDefaultRoundingMode(roundingMode) {
@@ -302,6 +302,7 @@ module.exports = function(wasmInstance, memUtils) {
   mpf.isMPFloat = function isMPFloat(value) {
     return typeof value === "object" && value instanceof MPFloat;
   };
+
   ["log2", "pi", "euler", "catalan"].forEach(constant => {
     const name = `get${constant.charAt(0).toUpperCase()}${constant.slice(1)}`;
     const fn = wasmExports[`_mpfr_const_${constant}`];
@@ -395,6 +396,7 @@ module.exports = function(wasmInstance, memUtils) {
     }[name];
     if (name !== "fac") curriedOps.push(name);
   });
+
   ["ceil", "floor", "round", "roundeven", "trunc"].forEach(op => {
     const name = camelize(op);
     const fn = wasmExports[`_mpfr_${op}`];
@@ -402,7 +404,6 @@ module.exports = function(wasmInstance, memUtils) {
       [name](a, opts) {
         if (a == null) throw new Error("missing argument");
 
-        const { roundingMode } = opts || {};
         const ret = mpf(a, opts);
         const retPtr = ensureRegister(ret);
 
@@ -412,6 +413,7 @@ module.exports = function(wasmInstance, memUtils) {
     }[name];
     curriedOps.push(name);
   });
+
   [
     "add",
     "sub",
@@ -565,6 +567,7 @@ module.exports = function(wasmInstance, memUtils) {
     }[name];
     curriedOps.push(name);
   });
+
   ["jn", "yn"].forEach(op => {
     const name = camelize(op);
     const fn = wasmExports[`_mpfr_${op}`];
@@ -595,7 +598,7 @@ module.exports = function(wasmInstance, memUtils) {
       typeof a === "bigint" ||
       (typeof a === "object" && !(a instanceof MPFloat))
     ) {
-      a = mpf(a.toString());
+      a = mpf(a);
     }
 
     if (
@@ -603,7 +606,7 @@ module.exports = function(wasmInstance, memUtils) {
       typeof b === "bigint" ||
       (typeof b === "object" && !(b instanceof MPFloat))
     ) {
-      b = mpf(b.toString());
+      b = mpf(b);
     }
 
     let ret;
@@ -641,6 +644,7 @@ module.exports = function(wasmInstance, memUtils) {
     return _mpfr_cmpabs(ensureRegister(a), ensureRegister(b));
   };
   curriedOps.push("cmpabs");
+
   [
     ["greater", "gt"],
     ["greaterequal", "gte"],

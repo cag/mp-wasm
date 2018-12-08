@@ -8,7 +8,11 @@
     "build:wasm": "make",
     "build:web": "browserify browser.js -o mp-wasm.js",
     "build": "npm run build:wasm && npm run build:web",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:node": "nyc mocha",
+    "test:nodewatch": "mocha --watch",
+    "test:web": "nyc karma start --single-run",
+    "test:webwatch": "karma start",
+    "test": "mocha && karma start --single-run"
   },
   "repository": {
     "type": "git",
@@ -26,9 +30,24 @@
   },
   "devDependencies": {
     "browserify": "^16.2.3",
+    "chai": "^4.2.0",
     "eslint": "^5.9.0",
     "eslint-config-prettier": "^3.3.0",
     "eslint-plugin-prettier": "^3.0.0",
-    "prettier": "1.15.3"
+    "karma": "^3.1.3",
+    "karma-browserify": "^6.0.0",
+    "karma-firefox-launcher": "^1.1.0",
+    "karma-mocha": "^1.3.0",
+    "mocha": "^5.2.0",
+    "nyc": "^13.1.0",
+    "prettier": "1.15.3",
+    "watchify": "^3.11.0"
+  },
+  "nyc": {
+    "exclude": [
+      "index.js",
+      "browser.js",
+      "test/**/*.js"
+    ]
   }
 }

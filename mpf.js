@@ -1,3 +1,4 @@
+const assert = require("assert");
 const { camelize } = require("humps");
 
 module.exports = function(wasmInstance, memUtils) {
@@ -5,12 +6,13 @@ module.exports = function(wasmInstance, memUtils) {
   const {
     isWord,
     isSword,
+
     ensureRegister,
     initRegister,
     clearRegister,
+    registerSize,
     memViews,
-    wordLimit,
-    swordLimits,
+
     cstrToString,
     stringToNewCStr
   } = memUtils;
@@ -56,16 +58,6 @@ module.exports = function(wasmInstance, memUtils) {
       prec > mpf.precMax
     ) {
       throw new Error(`invalid precision value ${prec}`);
-    }
-  }
-
-  function checkValidRoundingMode(roundingMode) {
-    if (
-      roundingMode == null ||
-      typeof roundingMode !== "number" ||
-      !mpf.roundingModeNames.hasOwnProperty(roundingMode)
-    ) {
-      throw new Error(`invalid rounding mode ${roundingMode}`);
     }
   }
 
@@ -218,8 +210,7 @@ module.exports = function(wasmInstance, memUtils) {
     toString() {
       const ptr = ensureRegister(this);
       const strPtr = _conv_mpfr_to_str(ptr);
-      if (strPtr === 0)
-        throw new Error(`could not convert mpfr at ${ptr} to string`);
+      assert(strPtr !== 0, `could not convert mpfr at ${ptr} to string`);
       const ret = cstrToString(strPtr);
       _mpfr_free_str(strPtr);
       return ret;
@@ -257,13 +248,12 @@ module.exports = function(wasmInstance, memUtils) {
   mpf.prototype = MPFloat.prototype;
 
   mpf.structSize = _sizeof_mpfr_struct();
-  if (mpf.structSize > memUtils.registerSize)
-    console.warn(
-      "mpfr struct size",
-      mpf.structSize,
-      "bigger than register size",
-      memUtils.registerSize
-    );
+  assert(
+    mpf.structSize <= registerSize,
+    `mpfr struct size ${
+      mpf.structSize
+    } bigger than register size ${registerSize}`
+  );
 
   mpf.precMin = _get_MPFR_PREC_MIN();
   mpf.precMax = _get_MPFR_PREC_MAX();

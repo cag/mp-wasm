@@ -8,9 +8,9 @@
     "build:wasm": "make",
     "build:web": "browserify browser.js -o mp-wasm.js",
     "build": "npm run build:wasm && npm run build:web",
-    "test:node": "nyc mocha",
+    "test:node": "nyc --reporter=html --reporter=text mocha",
     "test:nodewatch": "mocha --watch",
-    "test:web": "nyc karma start --single-run",
+    "test:web": "karma start --single-run",
     "test:webwatch": "karma start",
     "test": "mocha && karma start --single-run"
   },

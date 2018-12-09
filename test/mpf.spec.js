@@ -1,4 +1,4 @@
-const assert = require("chai").assert;
+const { assert } = require("chai");
 
 describe("mpf", () => {
   let mpWasm, mpf;
@@ -39,6 +39,19 @@ describe("mpf", () => {
     assert.equal(y.toNumber(), 1);
     y.set(-5.5);
     assert.notEqual(x.toNumber(), y.toNumber());
+
+    assert.throws(() => x.set(true), /can't/);
+  });
+
+  it("specify base for string", () => {
+    const x = mpf("ef", { base: 16 });
+    assert.equal(x.toNumber(), 0xef);
+    x.set("-101110100", { base: 2 });
+    assert.equal(x.toNumber(), -0b101110100);
+    x.set("12", { base: 8 });
+    assert.equal(x.toNumber(), 10);
+
+    assert.throws(() => x.set("2", { base: 1 }), /base/);
   });
 
   it("can be constructed with an initial value", () => {
@@ -55,13 +68,21 @@ describe("mpf", () => {
     const vStr =
       "123.45678901234567890123456789012345678901234567890123456789012345678901234567890123";
     const v1 = mpf(vStr, { prec: 1 });
+    assert.equal(v1.getPrec(), 1);
     assert.equal(v1.toNumber(), 128);
 
     const v53 = mpf(vStr, { prec: 53 });
+    assert.equal(v1.getPrec(), 1);
+    assert.equal(v53.getPrec(), 53);
     assert.equal(v53.toNumber(), Number(vStr));
 
     const v275 = mpf(vStr, { prec: 275 });
+    assert.equal(v1.getPrec(), 1);
+    assert.equal(v53.getPrec(), 53);
+    assert.equal(v275.getPrec(), 275);
     assert.equal(v275.toString(), vStr);
+
+    assert.throws(() => mpf(vStr, { prec: -1 }), /precision/);
   });
 
   it("has a default precision setting", () => {
@@ -73,6 +94,7 @@ describe("mpf", () => {
 
     mpf.setDefaultPrec(1);
     assert.equal(mpf.getDefaultPrec(), 1);
+    assert.equal(v53.getPrec(), 53);
     const v1a = mpf(vStr);
     const v1b = mpf(v53);
     assert.equal(v1a.toNumber(), 128);
@@ -81,11 +103,17 @@ describe("mpf", () => {
 
     mpf.setDefaultPrec(275);
     assert.equal(mpf.getDefaultPrec(), 275);
+    assert.equal(v1a.getPrec(), 1);
+    assert.equal(v1b.getPrec(), 1);
+    assert.equal(v53.getPrec(), 53);
+    v1a.setPrec(30);
     const v275 = mpf(vStr);
     assert.equal(v275.toString(), vStr);
     assert.equal(v53.toNumber(), Number(vStr));
 
     mpf.setDefaultPrec(53);
+    assert.equal(v1a.getPrec(), 30);
+    assert.equal(v275.getPrec(), 275);
     assert.equal(mpf.getDefaultPrec(), 53);
   });
 
@@ -160,6 +188,8 @@ describe("mpf", () => {
       mpf(-1.0001, { prec: 1, roundingMode: "roundTiesToAwayZero" }).toNumber(),
       -2
     );
+
+    assert.throws(() => mpf(1.9, { roundingMode: "badRounding" }), /round/);
   });
 
   it("has a default rounding mode setting", () => {
@@ -186,6 +216,8 @@ describe("mpf", () => {
 
     mpf.setDefaultRoundingMode(0);
     assert.equal(mpf.getDefaultRoundingMode(), "roundTiesToEven");
+
+    assert.throws(() => mpf.setDefaultRoundingMode(null), /missing/);
   });
 
   it("can determine whether or not something is an MPFloat", () => {
@@ -278,6 +310,46 @@ describe("mpf", () => {
         }
       }
     }
+
+    assert.throws(() => mpf.cmp(true, 3), /cmp/);
+  });
+
+  it("can check for special values", () => {
+    assert.isTrue(mpf(NaN).isNaN());
+    assert.isFalse(mpf(3.14).isNaN());
+    assert.isFalse(mpf(Infinity).isNaN());
+    assert.isTrue(mpf("nan").isNaN());
+
+    assert.isFalse(mpf(NaN).isFinite());
+    assert.isTrue(mpf(3.14).isFinite());
+    assert.isFalse(mpf(Infinity).isFinite());
+    assert.isFalse(mpf("inf").isFinite());
+
+    assert.isFalse(mpf(NaN).isInteger());
+    assert.isTrue(mpf(-20).isInteger());
+    assert.isFalse(mpf(3.14).isInteger());
+    assert.isFalse(mpf(Infinity).isInteger());
+    assert.isFalse(mpf("inf").isInteger());
+  });
+
+  it("can do ops with stuff", () => {
+    assert.throws(mpf.sqrt, /missing/);
+    assert.throws(mpf.ceil, /missing/);
+    assert.throws(() => mpf.fac(3.5), /can't/);
+    assert.throws(mpf.pow, /missing/);
+    assert.throws(() => mpf.pow(1), /missing/);
+    assert(
+      mpf
+        .pow(2, -2)
+        .pow(-3)
+        .eq(64)
+    );
+    assert.throws(() => mpf.pow(3, true), /can't/);
+    assert.throws(mpf.jn, /missing/);
+    assert.throws(() => mpf.yn(3), /missing/);
+    assert.throws(() => mpf.jn(1.1, 2), /invalid n/);
+    assert.equal(mpf.jn(3, 1).toNumber(), 0.019563353982668407);
+    assert.equal(mpf.yn(3, 1).toNumber(), -5.821517605964729);
   });
 
   it("matches IEEE Std 754-2008 and ECMA262 (stress test)", function() {
@@ -353,7 +425,10 @@ describe("mpf", () => {
         ["coth", x => 1 / Math.tanh(x)],
         ["acosh", Math.acosh],
         ["asinh", Math.asinh],
-        ["atanh", Math.atanh]
+        ["atanh", Math.atanh],
+        ["ceil", Math.ceil],
+        ["floor", Math.floor],
+        ["trunc", Math.trunc]
       ]) {
         for (const x of genParams()) {
           const actual = mpf[fnName](x).toNumber();

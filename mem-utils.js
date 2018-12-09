@@ -22,8 +22,7 @@ module.exports = function(memory, wasmInstance) {
   const wordSize = _sizeof_unsigned_long();
   const memWordView = memViews[`uint${wordSize * 8}`];
   const memSwordView = memViews[`int${wordSize * 8}`];
-  const wordLimit = 1 << (wordSize * 8);
-  const swordLimits = [-(1 << (wordSize * 8 - 1)), 1 << (wordSize * 8 - 1)];
+  const wordLimit = Math.pow(2, wordSize * 8);
 
   const registerSize = 16;
   const numRegisters = 8;
@@ -78,13 +77,13 @@ module.exports = function(memory, wasmInstance) {
     },
 
     isSword(n) {
-      return Number.isInteger(n) && n >= swordLimits[0] && n < swordLimits[1];
+      return Number.isInteger(n) && n * 2 >= -wordLimit && n * 2 < wordLimit;
     },
 
     ensureRegister,
     initRegister,
     clearRegister,
-
+    registerSize,
     memViews,
 
     stringToNewCStr(str) {

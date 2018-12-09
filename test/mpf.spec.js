@@ -350,12 +350,12 @@ describe("mpf", () => {
     assert.throws(() => mpf.jn(1.1, 2), /invalid n/);
     assert.equal(mpf.jn(3, 1).toNumber(), 0.019563353982668407);
     assert.equal(mpf.yn(3, 1).toNumber(), -5.821517605964729);
-    assert.throws(() => mpf.rootn(1.3, 4.5), /can't/)
+    assert.throws(() => mpf.rootn(1.3, 4.5), /can't/);
   });
 
   it("can print nicely in repls", () => {
-    assert.include(mpf(3)[Symbol.for("nodejs.util.inspect.custom")](), "3")
-  })
+    assert.include(mpf(3)[Symbol.for("nodejs.util.inspect.custom")](), "3");
+  });
 
   it("matches IEEE Std 754-2008 and ECMA262 (stress test)", function() {
     this.timeout(15000);

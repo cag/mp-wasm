@@ -98,6 +98,10 @@ module.exports = function(wasmInstance, memUtils) {
 
   const readFromMemory = Symbol("readFromMemory");
   const setRaw = Symbol("setRaw");
+  const precision = Symbol("precision");
+  const sign = Symbol("sign");
+  const exp = Symbol("exp");
+  const significand = Symbol("significand");
 
   class MPFloat {
     constructor(initialValue, opts) {
@@ -105,7 +109,7 @@ module.exports = function(wasmInstance, memUtils) {
 
       if (prec != null) {
         checkValidPrec(prec);
-        this.precision = prec;
+        this[precision] = prec;
       }
 
       const ptr = ensureRegister(this);
@@ -118,23 +122,23 @@ module.exports = function(wasmInstance, memUtils) {
     }
 
     [readFromMemory](ptr) {
-      this.precision = _mpfr_get_prec(ptr);
-      this.sign = _get_mpfr_sign(ptr);
-      this.exp = _get_mpfr_exp(ptr);
-      const significandSize = _mpfr_custom_get_size(this.precision);
+      this[precision] = _mpfr_get_prec(ptr);
+      this[sign] = _get_mpfr_sign(ptr);
+      this[exp] = _get_mpfr_exp(ptr);
+      const significandSize = _mpfr_custom_get_size(this[precision]);
 
       if (
-        this.significand != null &&
-        significandSize <= this.significand.buffer.byteLength
+        this[significand] != null &&
+        significandSize <= this[significand].buffer.byteLength
       ) {
-        this.significand = this.significand.subarray(0, significandSize);
+        this[significand] = this[significand].subarray(0, significandSize);
       } else {
-        this.significand = new Uint8Array(new ArrayBuffer(significandSize));
+        this[significand] = new Uint8Array(new ArrayBuffer(significandSize));
       }
 
       const significandPtr = _mpfr_custom_get_significand(ptr);
 
-      this.significand.set(
+      this[significand].set(
         memViews.uint8.subarray(
           significandPtr,
           significandPtr + significandSize
@@ -144,22 +148,22 @@ module.exports = function(wasmInstance, memUtils) {
 
     [initRegister](ptr) {
       if (
-        this.precision != null &&
-        this.sign != null &&
-        this.exp != null &&
-        this.significand != null
+        this[precision] != null &&
+        this[sign] != null &&
+        this[exp] != null &&
+        this[significand] != null
       ) {
-        _mpfr_init2(ptr, this.precision);
-        _set_mpfr_sign(ptr, this.sign);
-        _set_mpfr_exp(ptr, this.exp);
+        _mpfr_init2(ptr, this[precision]);
+        _set_mpfr_sign(ptr, this[sign]);
+        _set_mpfr_exp(ptr, this[exp]);
 
         const significandPtr = _mpfr_custom_get_significand(ptr);
-        memViews.uint8.set(this.significand, significandPtr);
+        memViews.uint8.set(this[significand], significandPtr);
       } else {
-        if (this.precision == null) {
+        if (this[precision] == null) {
           _mpfr_init(ptr);
         } else {
-          _mpfr_init2(ptr, this.precision);
+          _mpfr_init2(ptr, this[precision]);
         }
       }
     }
@@ -176,7 +180,7 @@ module.exports = function(wasmInstance, memUtils) {
     }
 
     getPrec() {
-      return this.precision || mpf.getDefaultPrec();
+      return this[precision] || mpf.getDefaultPrec();
     }
 
     set(newValue, opts) {
@@ -310,7 +314,9 @@ module.exports = function(wasmInstance, memUtils) {
       [name](opts) {
         const { roundingMode } = opts || {};
         const ret = mpf(null, opts);
-        fn(ensureRegister(ret), normalizeRoundingMode(roundingMode));
+        const retPtr = ensureRegister(ret)
+        fn(retPtr, normalizeRoundingMode(roundingMode));
+        ret[readFromMemory](retPtr)
         return ret;
       }
     }[name];
@@ -391,6 +397,7 @@ module.exports = function(wasmInstance, memUtils) {
         }
 
         fn(retPtr, arg, normalizeRoundingMode(roundingMode));
+        ret[readFromMemory](retPtr)
         return ret;
       }
     }[name];
@@ -408,6 +415,7 @@ module.exports = function(wasmInstance, memUtils) {
         const retPtr = ensureRegister(ret);
 
         fn(retPtr, retPtr);
+        ret[readFromMemory](retPtr)
         return ret;
       }
     }[name];
@@ -556,12 +564,14 @@ module.exports = function(wasmInstance, memUtils) {
           throw new Error(`can't perform ${op} on ${a} and ${b}`);
         }
 
+        const retPtr = ensureRegister(ret)
         fn(
-          ensureRegister(ret),
+          retPtr,
           arg1,
           arg2,
           normalizeRoundingMode(roundingMode)
         );
+        ret[readFromMemory](retPtr)
         return ret;
       }
     }[name];
@@ -584,7 +594,7 @@ module.exports = function(wasmInstance, memUtils) {
         const retPtr = ensureRegister(ret);
 
         fn(retPtr, n, retPtr, normalizeRoundingMode(roundingMode));
-
+        ret[readFromMemory](retPtr)
         return ret;
       }
     }[name];

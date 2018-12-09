@@ -52,6 +52,7 @@ module.exports = function(memory, wasmInstance) {
     let registerPtr;
     if (objsRegisterNumMap.has(obj)) {
       n = objsRegisterNumMap.get(obj);
+      assert(registersObjMap.get(n) === obj, `wrong object found in register ${n}`)
       registerPtr = getRegisterPtr(n);
     } else {
       n = registersObjMap.shift()[0];

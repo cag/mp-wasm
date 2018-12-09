@@ -217,12 +217,16 @@ describe('mpf', () => {
     }
   })
 
-  it('matches IEEE Std 754-2008 and ECMA262', () => {
+  it('matches IEEE Std 754-2008 and ECMA262 (stress test)', function() {
+    this.timeout(15000);
+ 
     const genParams = () => [
       -Infinity, Infinity, NaN, 0, -1, 1,
       Math.random(),
       (Math.random() - 0.5) * Math.pow(2, Math.ceil(Math.random() * 2048 - 1024)),
-    ]
+    ].flatMap(v => [v, v.toString(), mpf(v)])
+
+    const toNumber = x => mpf.isMPFloat(x) ? x.toNumber() : Number(x)
 
     function assertIsApproximately(actual, expected, args, fnName) {
       const errMsg = `${fnName}(${args.join(', ')}) wrong`
@@ -277,7 +281,15 @@ describe('mpf', () => {
       ]) {
         for(const x of genParams()) {
           const actual = mpf[fnName](x).toNumber()
-          const expected = expectedFn(x)
+          if(mpf.isMPFloat(x)) {
+            assert.isFunction(x[fnName], `x.${fnName} is not a function`)
+            const curriedRes = x[fnName]().toNumber()
+            if(Number.isNaN(curriedRes))
+              assert.isNaN(actual)
+            else
+              assert.equal(curriedRes, actual, `curried result for ${fnName} doesn't match with input ${x} and actual result ${actual}`)
+          }
+          const expected = expectedFn(toNumber(x))
           assertIsApproximately(actual, expected, [x], fnName)
         }
       }
@@ -297,10 +309,18 @@ describe('mpf', () => {
         for(const x of genParams()) {
           for(const y of genParams()) {
             const actual = mpf[fnName](x, y).toNumber()
-            const expected = expectedFn(x, y)
+            const expected = expectedFn(toNumber(x), toNumber(y))
+            if(mpf.isMPFloat(x)) {
+              assert.isFunction(x[fnName], `x.${fnName} is not a function`)
+              const curriedRes = x[fnName](y).toNumber()
+              if(Number.isNaN(curriedRes))
+                assert.isNaN(actual)
+              else
+                assert.equal(curriedRes, actual, `curried result for ${fnName} doesn't match with inputs ${typeof x} ${x} and ${typeof y} ${y}, and actual result ${actual}`)
+            }
             if(fnName === 'pow' && (
-              Math.abs(x) === 1 && Math.abs(y) === Infinity ||
-              x === 1 && Number.isNaN(y)
+              Math.abs(toNumber(x)) === 1 && Math.abs(toNumber(y)) === Infinity ||
+              toNumber(x) === 1 && Number.isNaN(toNumber(y))
             )) {
               // [ECMA262](https://www.ecma-international.org/ecma-262/6.0/#sec-math.pow):
               // * If y is NaN, the result is NaN.
@@ -314,7 +334,7 @@ describe('mpf', () => {
               assert.equal(actual, 1)
 
             } else if((fnName === 'min' || fnName === 'max') && (
-              Number.isNaN(x) || Number.isNaN(y)
+              Number.isNaN(toNumber(x)) || Number.isNaN(toNumber(y))
             )) {
               // [ECMA262](https://www.ecma-international.org/ecma-262/6.0/#sec-math.min):
               // * If any value is NaN, the result is NaN
@@ -330,10 +350,10 @@ describe('mpf', () => {
               // Actually the behavior is unspecified, but seems
               // to imply that NaNs are to be ignored essentially
               // unless every argument is NaN, in which return NaN.
-              if(!Number.isNaN(x)) {
-                assert.equal(actual, x)
-              } else if(!Number.isNaN(y)) {
-                assert.equal(actual, y)
+              if(!Number.isNaN(toNumber(x))) {
+                assert.equal(actual, toNumber(x))
+              } else if(!Number.isNaN(toNumber(y))) {
+                assert.equal(actual, toNumber(y))
               } else {
                 assert.isNaN(actual)
               }

@@ -172,7 +172,8 @@ module.exports = function(wasmInstance, memUtils) {
     }
 
     getPrec() {
-      return this[precision] || mpf.getDefaultPrec();
+      assert(this[precision] != null);
+      return this[precision];
     }
 
     set(newValue, opts) {

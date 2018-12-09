@@ -44,7 +44,10 @@ module.exports = function(memory, wasmInstance) {
   const objsRegisterNumMap = new WeakMap();
 
   function getRegisterPtr(n) {
-    assert(Number.isInteger(n) && n >= 0 && n < numRegisters, `invalid register number ${n}`)
+    assert(
+      Number.isInteger(n) && n >= 0 && n < numRegisters,
+      `invalid register number ${n}`
+    );
     return registersBeginPtr + n * registerSize;
   }
 
@@ -52,7 +55,10 @@ module.exports = function(memory, wasmInstance) {
     let registerPtr;
     if (objsRegisterNumMap.has(obj)) {
       n = objsRegisterNumMap.get(obj);
-      assert(registersObjMap.get(n) === obj, `wrong object found in register ${n}`)
+      assert(
+        registersObjMap.get(n) === obj,
+        `wrong object found in register ${n}`
+      );
       registerPtr = getRegisterPtr(n);
     } else {
       n = registersObjMap.shift()[0];

@@ -314,9 +314,9 @@ module.exports = function(wasmInstance, memUtils) {
       [name](opts) {
         const { roundingMode } = opts || {};
         const ret = mpf(null, opts);
-        const retPtr = ensureRegister(ret)
+        const retPtr = ensureRegister(ret);
         fn(retPtr, normalizeRoundingMode(roundingMode));
-        ret[readFromMemory](retPtr)
+        ret[readFromMemory](retPtr);
         return ret;
       }
     }[name];
@@ -397,7 +397,7 @@ module.exports = function(wasmInstance, memUtils) {
         }
 
         fn(retPtr, arg, normalizeRoundingMode(roundingMode));
-        ret[readFromMemory](retPtr)
+        ret[readFromMemory](retPtr);
         return ret;
       }
     }[name];
@@ -415,7 +415,7 @@ module.exports = function(wasmInstance, memUtils) {
         const retPtr = ensureRegister(ret);
 
         fn(retPtr, retPtr);
-        ret[readFromMemory](retPtr)
+        ret[readFromMemory](retPtr);
         return ret;
       }
     }[name];
@@ -564,14 +564,9 @@ module.exports = function(wasmInstance, memUtils) {
           throw new Error(`can't perform ${op} on ${a} and ${b}`);
         }
 
-        const retPtr = ensureRegister(ret)
-        fn(
-          retPtr,
-          arg1,
-          arg2,
-          normalizeRoundingMode(roundingMode)
-        );
-        ret[readFromMemory](retPtr)
+        const retPtr = ensureRegister(ret);
+        fn(retPtr, arg1, arg2, normalizeRoundingMode(roundingMode));
+        ret[readFromMemory](retPtr);
         return ret;
       }
     }[name];
@@ -594,7 +589,7 @@ module.exports = function(wasmInstance, memUtils) {
         const retPtr = ensureRegister(ret);
 
         fn(retPtr, n, retPtr, normalizeRoundingMode(roundingMode));
-        ret[readFromMemory](retPtr)
+        ret[readFromMemory](retPtr);
         return ret;
       }
     }[name];

@@ -1,6 +1,6 @@
 {
   "name": "mp-wasm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -12,7 +12,8 @@
     "test:nodewatch": "mocha --watch",
     "test:web": "karma start --single-run",
     "test:webwatch": "karma start",
-    "test": "mocha && karma start --single-run"
+    "test": "mocha && karma start --single-run",
+    "prepack": "npm run lint && npm t && npm run build"
   },
   "repository": {
     "type": "git",

@@ -215,7 +215,7 @@ module.exports = function(wasmInstance, memUtils) {
   const setRaw = Symbol("setRaw");
   const precision = Symbol("precision");
   const sign = Symbol("sign");
-  const exp = Symbol("exp");
+  const exponent = Symbol("exponent");
   const significand = Symbol("significand");
 
   class MPFloat {
@@ -239,7 +239,7 @@ module.exports = function(wasmInstance, memUtils) {
     [readFromMemory](ptr) {
       this[precision] = _mpfr_get_prec(ptr);
       this[sign] = _get_mpfr_sign(ptr);
-      this[exp] = _get_mpfr_exp(ptr);
+      this[exponent] = _get_mpfr_exp(ptr);
       const significandSize = _mpfr_custom_get_size(this[precision]);
 
       if (
@@ -265,12 +265,12 @@ module.exports = function(wasmInstance, memUtils) {
       if (
         this[precision] != null &&
         this[sign] != null &&
-        this[exp] != null &&
+        this[exponent] != null &&
         this[significand] != null
       ) {
         _mpfr_init2(ptr, this[precision]);
         _set_mpfr_sign(ptr, this[sign]);
-        _set_mpfr_exp(ptr, this[exp]);
+        _set_mpfr_exp(ptr, this[exponent]);
 
         const significandPtr = _mpfr_custom_get_significand(ptr);
         memViews.uint8.set(this[significand], significandPtr);
@@ -359,6 +359,21 @@ module.exports = function(wasmInstance, memUtils) {
     isInteger() {
       const ptr = ensureRegister(this);
       return Boolean(_mpfr_integer_p(ptr));
+    }
+
+    isSignBitSet() {
+      return this[sign] < 0;
+    }
+
+    getBinaryExponent() {
+      if (this[exponent] === -2147483645) return Infinity;
+      if (this[exponent] === -2147483646) return NaN;
+      if (this[exponent] === -2147483647) return -Infinity;
+      return this[exponent];
+    }
+
+    getSignificandRawBytes() {
+      return this[significand];
     }
 
     [Symbol.for("nodejs.util.inspect.custom")]() {

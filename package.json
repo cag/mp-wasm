@@ -1,7 +1,7 @@
 {
   "name": "mp-wasm",
-  "version": "0.3.0",
-  "description": "",
+  "version": "0.4.0",
+  "description": "Multiple precision arithmetic in JS with WASM",
   "main": "index.js",
   "scripts": {
     "lint": "eslint .",

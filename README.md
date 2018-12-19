@@ -173,6 +173,25 @@ The following checks are also available:
     isFinite()
     isInteger()
 
+### Internal Representation
+
+`mpf` instances can have their internal representation info acquired with the following methods:
+
+* `isSignBitSet()`
+
+  This returns `true` if number is a negative number/zero/infinity, and `false` otherwise.
+
+* `getBinaryExponent()`
+
+  This returns the `exponent` for a given number `x` when `x` is written in the form `significand * 2^exponent`, where `significand` is in the range `[0.5, 1)`. Also, for some special cases:
+
+  * If `x` is ±0, return −∞
+  * If `x` is ±∞, return +∞
+  * If `x` is NaN, return NaN
+
+* `getSignificandRawBytes()`
+
+  This returns a Uint8Array of the bytes of the significand in little-endian order padded to a multiple of the WASM machine word size. The least significant bits of this array are zeroes according to the precision of the `mpf`. Unlike IEEE 754, there is no leading bit convention, and the significand will typically have its most significant bit explicitly set.
 
 ## Future Stuff
 

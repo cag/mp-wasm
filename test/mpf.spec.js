@@ -3,7 +3,9 @@ const { assert } = require("chai");
 describe("mpf", () => {
   let mpWasm, mpf;
 
-  before(async () => {
+  before(async function() {
+    this.timeout(4000);
+
     if (typeof window === "undefined") {
       mpWasm = require("..");
     } else {
@@ -355,6 +357,45 @@ describe("mpf", () => {
 
   it("can print nicely in repls", () => {
     assert.include(mpf(3)[Symbol.for("nodejs.util.inspect.custom")](), "3");
+  });
+
+  it("can return internal info", () => {
+    assert.equal(mpf(2).isSignBitSet(), false);
+    assert.equal(mpf(-2).isSignBitSet(), true);
+    assert.equal(mpf(0).isSignBitSet(), false);
+    assert.equal(mpf(-0).isSignBitSet(), true);
+    assert.equal(mpf(Infinity).isSignBitSet(), false);
+    assert.equal(mpf(-Infinity).isSignBitSet(), true);
+    assert.equal(mpf(NaN).isSignBitSet(), false);
+
+    assert.equal(mpf(-0).getBinaryExponent(), -Infinity);
+    assert.equal(mpf(0).getBinaryExponent(), -Infinity);
+    assert.equal(mpf(1).getBinaryExponent(), 1);
+    assert.equal(mpf(2).getBinaryExponent(), 2);
+    assert.equal(mpf(3.9).getBinaryExponent(), 2);
+    assert.equal(mpf(0.5).getBinaryExponent(), 0);
+    assert.equal(mpf(0.15).getBinaryExponent(), -2);
+    assert.equal(mpf(Infinity).getBinaryExponent(), Infinity);
+    assert.equal(mpf(-Infinity).getBinaryExponent(), Infinity);
+    assert.isNaN(mpf(NaN).getBinaryExponent());
+
+    let bs = mpf(1).getSignificandRawBytes();
+    for (let i = 0; i < bs.length; i++) {
+      if (i === bs.length - 1) {
+        assert.equal(bs[i], 0x80);
+      } else {
+        assert.equal(bs[i], 0);
+      }
+    }
+
+    bs = mpf(1.75).getSignificandRawBytes();
+    for (let i = 0; i < bs.length; i++) {
+      if (i === bs.length - 1) {
+        assert.equal(bs[i], 0xe0);
+      } else {
+        assert.equal(bs[i], 0);
+      }
+    }
   });
 
   it("matches IEEE Std 754-2008 and ECMA262 (stress test)", function() {
